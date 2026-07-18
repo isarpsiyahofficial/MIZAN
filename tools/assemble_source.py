@@ -55,10 +55,21 @@ def wrap_single_line_ifs(text: str) -> str:
             continue
         condition = stripped[: closing + 1]
         body = stripped[closing + 1 :].strip()
-        if not body or body.startswith("{") or not body.endswith(";"):
+        if (
+            not body
+            or body.startswith("{")
+            or not body.endswith(";")
+            or body.count(";") != 1
+        ):
             output.append(line)
             continue
-        output.extend([f"{indent}{condition} {{", f"{indent}  {body}", f"{indent}}}"])
+        output.extend(
+            [
+                f"{indent}{condition} {{",
+                f"{indent}  {body}",
+                f"{indent}}}",
+            ]
+        )
     return "\n".join(output) + ("\n" if text.endswith("\n") else "")
 
 
@@ -104,12 +115,30 @@ people = people.replace(
 )
 people_path.write_text(people, encoding="utf-8")
 
+expenses_path = ROOT / "lib/screens/expenses_screen.dart"
+expenses = expenses_path.read_text(encoding="utf-8")
+expenses = expenses.replace(
+    "if (parseMoney(value ?? '') < 0) return 'Birim fiyat negatif olamaz.';",
+    "if (parseMoney(value ?? '') < 0) { return 'Birim fiyat negatif olamaz.'; }",
+)
+expenses_path.write_text(expenses, encoding="utf-8")
+
 cards_path = ROOT / "lib/widgets/mizan_cards.dart"
 cards = cards_path.read_text(encoding="utf-8")
-cards = cards.replace("if (action != null) action!,", "if (action case final value?) value,")
-cards = cards.replace(
-    "if (action != null) ...[const SizedBox(height: 14), action!],",
+cards = re.sub(
+    r"if \(action != null\)\s+action!,",
+    "if (action case final value?) value,",
+    cards,
+)
+cards = re.sub(
+    r"if \(action != null\)\s+\.\.\.\[const SizedBox\(height: 14\), action!\],",
     "if (action case final value?) ...[const SizedBox(height: 14), value],",
+    cards,
+)
+cards = re.sub(
+    r"if \(trailing != null\)\s+\.\.\.\[const SizedBox\(width: 10\), Flexible\(child: trailing!\)\],",
+    "if (trailing case final value?) ...[const SizedBox(width: 10), Flexible(child: value)],",
+    cards,
 )
 cards_path.write_text(cards, encoding="utf-8")
 
@@ -122,4 +151,4 @@ for dart_file in (ROOT / "lib").rglob("*.dart"):
 shutil.rmtree(PARTS)
 (ROOT / ".github/workflows/assemble-source.yml").unlink(missing_ok=True)
 Path(__file__).unlink(missing_ok=True)
-print(f"{len(FILES)} kaynak dosyası birleştirildi ve analyzer düzeltmeleri uygulandı.")
+print(f"{len(FILES)} kaynak dosyası birleştirildi ve güvenli analyzer düzeltmeleri uygulandı.")
