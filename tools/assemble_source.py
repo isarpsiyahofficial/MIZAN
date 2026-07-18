@@ -160,10 +160,12 @@ expenses = expenses.replace(
 expenses = expenses.replace(
     "LayoutBuilder(builder: (_, constraints) {",
     "Builder(builder: (context) {",
+    1,
 )
 expenses = expenses.replace(
     "if (constraints.maxWidth < 470) return Column(children: [fields[0], const SizedBox(height: 12), fields[1]]);",
     "if (MediaQuery.sizeOf(context).width < 600 || MediaQuery.textScalerOf(context).scale(1) > 1.3) return Column(children: [fields[0], const SizedBox(height: 12), fields[1]]);",
+    1,
 )
 expenses_path.write_text(delay_local_controller_disposal(expenses), encoding="utf-8")
 
@@ -189,10 +191,9 @@ reports_path.write_text(reports, encoding="utf-8")
 
 cards_path = ROOT / "lib/widgets/mizan_cards.dart"
 cards = cards_path.read_text(encoding="utf-8")
-cards = re.sub(
-    r"if \(icon != null\)\s+\.\.\.\[\s*Icon\(icon,",
-    "if (icon case final value?) ...[\n              Icon(value,",
-    cards,
+cards = cards.replace(
+    "if (icon != null) ...[\n              Icon(icon, color: color),",
+    "if (icon case final value?) ...[\n              Icon(value, color: color),",
 )
 cards = re.sub(
     r"if \(subtitle != null\)\s+Text\(subtitle!,",
@@ -225,4 +226,4 @@ for dart_file in (ROOT / "lib").rglob("*.dart"):
 shutil.rmtree(PARTS)
 (ROOT / ".github/workflows/assemble-source.yml").unlink(missing_ok=True)
 Path(__file__).unlink(missing_ok=True)
-print(f"{len(FILES)} kaynak dosyası birleştirildi; dialog, rapor ve analyzer düzeltmeleri uygulandı.")
+print(f"{len(FILES)} kaynak dosyası birleştirildi; dar kapsamlı dialog, rapor ve analyzer düzeltmeleri uygulandı.")
