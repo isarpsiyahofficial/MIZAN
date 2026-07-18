@@ -58,7 +58,7 @@ Future<void> _addPerson(
 ) async {
   await _tapText(tester, 'Kişiler');
   await _tapText(tester, 'Kişi ekle');
-  await tester.enterText(_dialogFields().single, 'Test Kişi');
+  await tester.enterText(_dialogFields().first, 'Test Kişi');
   await _tapText(tester, 'Kaydet');
   expect(controller.state.people.single.name, 'Test Kişi');
 }
@@ -85,7 +85,7 @@ void main() {
     await _addPerson(tester, controller);
 
     await _tapText(tester, 'Banka ekle');
-    await tester.enterText(_dialogFields().single, 'Test Banka');
+    await tester.enterText(_dialogFields().first, 'Test Banka');
     await _tapText(tester, 'Kaydet');
     expect(controller.state.people.single.banks.single.userWrittenName, 'Test Banka');
 
@@ -119,7 +119,7 @@ void main() {
     );
     await tester.tap(noteButton);
     await tester.pumpAndSettle();
-    await tester.enterText(_dialogFields().single, 'Kayda özel test notu');
+    await tester.enterText(_dialogFields().first, 'Kayda özel test notu');
     await _tapText(tester, 'Kaydet');
     expect(
       controller.state.people.single.banks.single.products.single.notes.single.text,
@@ -157,7 +157,7 @@ void main() {
     await _tapText(tester, 'Giderler');
 
     await _tapText(tester, 'Kategori');
-    await tester.enterText(_dialogFields().single, 'Market Test');
+    await tester.enterText(_dialogFields().first, 'Market Test');
     await _tapText(tester, 'Kaydet');
     expect(controller.state.expenseCategories.single.name, 'Market Test');
 
@@ -172,7 +172,7 @@ void main() {
     await tester.tap(find.byTooltip('Kategori işlemleri'));
     await tester.pumpAndSettle();
     await _tapText(tester, 'Kategoriyi düzenle');
-    await tester.enterText(_dialogFields().single, 'Market Düzenli');
+    await tester.enterText(_dialogFields().first, 'Market Düzenli');
     await _tapText(tester, 'Kaydet');
     expect(controller.state.expenseCategories.single.name, 'Market Düzenli');
 
@@ -183,7 +183,7 @@ void main() {
       of: find.byType(AlertDialog),
       matching: find.byType(TextField),
     );
-    await tester.enterText(confirmation.single, 'ONAYLIYORUM');
+    await tester.enterText(confirmation.first, 'ONAYLIYORUM');
     await _tapText(tester, 'Kategori ve harcamaları sil');
     expect(controller.state.expenseCategories, isEmpty);
     expect(controller.state.expenses, isEmpty);
@@ -199,7 +199,7 @@ void main() {
     expect(controller.state.notificationsEnabled, isFalse);
 
     await _tapText(tester, 'Sabah gider · 07:00');
-    await tester.enterText(_dialogFields().single, 'Yeni sabah mesajı');
+    await tester.enterText(_dialogFields().first, 'Yeni sabah mesajı');
     await _tapText(tester, 'Kaydet');
     expect(controller.state.notificationSlots.first.message, 'Yeni sabah mesajı');
 
