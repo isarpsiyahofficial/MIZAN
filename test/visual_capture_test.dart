@@ -30,23 +30,38 @@ class _MemoryStore implements MizanStore {
   Future<void> save(MizanState value) async => state = value;
 }
 
-Future<void> _loadReadableScreenshotFont() async {
-  const candidates = [
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-    '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
-    '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
-  ];
+Future<void> _loadFont(String family, List<String> candidates) async {
   final path = candidates.firstWhere(
-    (candidate) => File(candidate).existsSync(),
-    orElse: () => throw StateError('Okunabilir ekran görüntüsü fontu bulunamadı.'),
+    (candidate) => candidate.isNotEmpty && File(candidate).existsSync(),
+    orElse: () => throw StateError('$family fontu test ortamında bulunamadı.'),
   );
-  final loader = FontLoader(_screenshotFontFamily);
+  final loader = FontLoader(family);
   loader.addFont(
     File(path).readAsBytes().then(
           (bytes) => ByteData.view(Uint8List.fromList(bytes).buffer),
         ),
   );
   await loader.load();
+}
+
+Future<void> _loadScreenshotFonts() async {
+  await _loadFont(
+    _screenshotFontFamily,
+    const [
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+      '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+      '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+    ],
+  );
+
+  final flutterRoot = Platform.environment['FLUTTER_ROOT'] ?? '';
+  await _loadFont(
+    'MaterialIcons',
+    [
+      '$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+      '/opt/hostedtoolcache/flutter/stable-x64/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+    ],
+  );
 }
 
 Future<void> _pumpApp(
@@ -119,7 +134,7 @@ Future<void> _capture(
 }
 
 void main() {
-  setUpAll(_loadReadableScreenshotFont);
+  setUpAll(_loadScreenshotFonts);
 
   testWidgets('ana sayfa telefon görseli', (tester) async {
     await _pumpApp(tester);
