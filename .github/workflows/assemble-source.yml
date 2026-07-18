@@ -27,6 +27,8 @@ jobs:
           exec > >(tee ci-logs/patch.log) 2>&1
           set -e
           python3 - <<'PY'
+          import binascii
+          import struct
           from pathlib import Path
 
           root = Path('.')
@@ -100,14 +102,35 @@ jobs:
             });
           }
           """, encoding='utf-8')
+
+          logo = root / 'assets/brand/lefferion-prime-logo.png'
+          raw = logo.read_bytes()
+          signature = b'\x89PNG\r\n\x1a\n'
+          if not raw.startswith(signature):
+              raise SystemExit('Logo geçerli bir PNG imzası taşımıyor.')
+          position = len(signature)
+          repaired = bytearray(signature)
+          while position < len(raw):
+              if position + 12 > len(raw):
+                  raise SystemExit('Logo PNG parçası yarım kalmış.')
+              length = struct.unpack('>I', raw[position:position + 4])[0]
+              chunk_type = raw[position + 4:position + 8]
+              data_start = position + 8
+              data_end = data_start + length
+              if data_end + 4 > len(raw):
+                  raise SystemExit('Logo PNG parça uzunluğu geçersiz.')
+              chunk_data = raw[data_start:data_end]
+              crc = binascii.crc32(chunk_type + chunk_data) & 0xffffffff
+              repaired.extend(struct.pack('>I', length))
+              repaired.extend(chunk_type)
+              repaired.extend(chunk_data)
+              repaired.extend(struct.pack('>I', crc))
+              position = data_end + 4
+              if chunk_type == b'IEND':
+                  break
+          logo.write_bytes(bytes(repaired))
+          print('Logo PNG CRC değerleri yeniden hesaplandı.')
           PY
-          logo='assets/brand/lefferion-prime-logo.png'
-          if command -v magick >/dev/null 2>&1; then
-            magick "$logo" -alpha on "PNG32:${logo}.fixed"
-          else
-            convert "$logo" -alpha on "PNG32:${logo}.fixed"
-          fi
-          mv "${logo}.fixed" "$logo"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
