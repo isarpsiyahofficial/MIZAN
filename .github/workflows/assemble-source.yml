@@ -255,4 +255,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "feat: publish verified MIZAN Flutter source"
-          git push --force-with-lease origin HEAD:"$GITHUB_HEAD_REF"
+          git push --force origin HEAD:"$GITHUB_HEAD_REF"
