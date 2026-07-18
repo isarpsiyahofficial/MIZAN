@@ -28,6 +28,7 @@ class ResponsiveScaffold extends StatelessWidget {
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 840;
         final extended = constraints.maxWidth >= 1120;
+        final compactNavigation = constraints.maxWidth < 430;
         final content = SafeArea(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 160),
@@ -40,6 +41,9 @@ class ResponsiveScaffold extends StatelessWidget {
             bottomNavigationBar: NavigationBar(
               selectedIndex: selectedIndex,
               onDestinationSelected: onSelected,
+              labelBehavior: compactNavigation
+                  ? NavigationDestinationLabelBehavior.onlyShowSelected
+                  : NavigationDestinationLabelBehavior.alwaysShow,
               destinations: [
                 for (final destination in destinations)
                   NavigationDestination(
@@ -73,7 +77,10 @@ class ResponsiveScaffold extends StatelessWidget {
                   for (final destination in destinations)
                     NavigationRailDestination(
                       icon: Icon(destination.icon),
-                      selectedIcon: Icon(destination.icon, color: MizanTheme.ink),
+                      selectedIcon: Icon(
+                        destination.icon,
+                        color: MizanTheme.ink,
+                      ),
                       label: Text(destination.label),
                     ),
                 ],
