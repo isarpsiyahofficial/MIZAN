@@ -23,6 +23,6 @@ Workflow `.github/workflows/android-release.yml` içinde Flutter SDK kurar, Andr
 
 Kaynak bütünlüğü ve CI doğrulaması 18 Temmuz 2026 tarihinde yeniden başlatıldı.
 
-Son doğrulama; sıfır analyzer sorunu, 260 maddelik yapısal kontrol, 25 birim ve etkileşim testi, dar ekran taşma kontrolleri ve release APK üretimini birlikte zorunlu tutar. Başarılı sonuçtan sonra doğrulanmış normal Flutter kaynakları PR dalına fast-forward commit olarak yazılır.
+Son doğrulama; sıfır analyzer sorunu, 260 maddelik yapısal kontrol, birim ve gerçek widget etkileşim testleri, dar ekran taşma kontrolleri, okunabilir telefon/tablet ekran görüntüleri ve release APK üretimini birlikte zorunlu tutar.
 
-Telefon ve tablet arayüzleri, gerçek Flutter widget render çıktıları olarak CI artifact içinde ayrıca üretilir.
+Aynı yeşil CI koşusu, gerçekten build edilen çalışma ağacını `LEFFERION-PRIME-MIZAN-SOURCE.zip` olarak GitHub artifact içinde yayınlar.
