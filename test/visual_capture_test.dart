@@ -90,15 +90,14 @@ Future<void> _tapNavigation(WidgetTester tester, IconData icon) async {
 
 Future<void> _scrollToTextAndTap(
   WidgetTester tester,
-  String text, {
-  Finder? scrollable,
-}) async {
+  String text,
+) async {
   final target = find.text(text);
   expect(target, findsOneWidget);
   await tester.scrollUntilVisible(
     target,
     240,
-    scrollable: scrollable ?? find.byType(Scrollable).first,
+    scrollable: find.byType(Scrollable).first,
   );
   await tester.pumpAndSettle();
   await tester.tap(target);
@@ -136,16 +135,13 @@ void main() {
   testWidgets('borç detay görseli', (tester) async {
     await _pumpApp(tester);
     await _tapNavigation(tester, Icons.people_alt_outlined);
-    final peopleList = find.byType(ListView).first;
     await _scrollToTextAndTap(
       tester,
       'Kullanıcının yazdığı banka adı',
-      scrollable: peopleList,
     );
     await _scrollToTextAndTap(
       tester,
       'Kredi kartı borcu',
-      scrollable: peopleList,
     );
     expect(find.byType(BottomSheet), findsOneWidget);
     await _capture(
@@ -158,11 +154,7 @@ void main() {
   testWidgets('giderler telefon görseli', (tester) async {
     await _pumpApp(tester);
     await _tapNavigation(tester, Icons.shopping_bag_outlined);
-    await _scrollToTextAndTap(
-      tester,
-      'Market',
-      scrollable: find.byType(ListView).first,
-    );
+    await _scrollToTextAndTap(tester, 'Market');
     await _capture(tester, '04-expenses-phone');
   });
 
