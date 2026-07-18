@@ -15,3 +15,6 @@ linter:
     discarded_futures: true
     prefer_final_locals: true
     unawaited_futures: true
+    # Dart 3.8 null-aware collection elements are optional syntax. Existing
+    # explicit conditional elements are kept for wider source readability.
+    use_null_aware_elements: false
