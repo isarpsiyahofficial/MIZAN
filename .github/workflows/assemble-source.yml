@@ -29,6 +29,7 @@ jobs:
           python3 - <<'PY'
           import binascii
           import struct
+          import zlib
           from pathlib import Path
 
           root = Path('.')
@@ -103,33 +104,79 @@ jobs:
           }
           """, encoding='utf-8')
 
+          size = 512
+          scale = 2
+          high = size * scale
+          transparent = (0, 0, 0, 0)
+          cream = (250, 249, 246, 255)
+          green = (112, 128, 105, 255)
+          gold = (191, 149, 64, 255)
+          dark_gold = (172, 128, 47, 255)
+          pixels = [[transparent for _ in range(high)] for _ in range(high)]
+          center = high / 2
+
+          for y in range(high):
+              for x in range(high):
+                  dx = x + 0.5 - center
+                  dy = y + 0.5 - center
+                  radius = (dx * dx + dy * dy) ** 0.5
+                  color = transparent
+                  if radius <= 190 * scale:
+                      color = cream
+                  if 177 * scale <= radius <= 184 * scale:
+                      color = green
+                  if 165 * scale <= radius <= 169 * scale:
+                      color = gold
+                  if 128 * scale <= radius <= 131 * scale:
+                      color = dark_gold
+
+                  in_l = (
+                      187 * scale <= x <= 221 * scale and 145 * scale <= y <= 346 * scale
+                  ) or (
+                      187 * scale <= x <= 301 * scale and 311 * scale <= y <= 346 * scale
+                  )
+                  if in_l:
+                      color = green
+
+                  in_p_stem = 242 * scale <= x <= 268 * scale and 164 * scale <= y <= 346 * scale
+                  px = (x - 274 * scale) / (72 * scale)
+                  py = (y - 216 * scale) / (59 * scale)
+                  outer = px * px + py * py <= 1
+                  inner_px = (x - 274 * scale) / (46 * scale)
+                  inner_py = (y - 216 * scale) / (34 * scale)
+                  inner = inner_px * inner_px + inner_py * inner_py < 1
+                  in_p_loop = outer and not inner and x >= 250 * scale and y <= 278 * scale
+                  if in_p_stem or in_p_loop:
+                      color = gold
+                  pixels[y][x] = color
+
+          rgba = bytearray()
+          for y in range(size):
+              for x in range(size):
+                  samples = [
+                      pixels[y * scale + oy][x * scale + ox]
+                      for oy in range(scale)
+                      for ox in range(scale)
+                  ]
+                  for channel in range(4):
+                      rgba.append(round(sum(pixel[channel] for pixel in samples) / len(samples)))
+
+          def png_chunk(kind, data):
+              crc = binascii.crc32(kind + data) & 0xffffffff
+              return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', crc)
+
+          rows = bytearray()
+          stride = size * 4
+          for y in range(size):
+              rows.append(0)
+              rows.extend(rgba[y * stride:(y + 1) * stride])
+          png = bytearray(b'\x89PNG\r\n\x1a\n')
+          png.extend(png_chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0)))
+          png.extend(png_chunk(b'IDAT', zlib.compress(bytes(rows), 9)))
+          png.extend(png_chunk(b'IEND', b''))
           logo = root / 'assets/brand/lefferion-prime-logo.png'
-          raw = logo.read_bytes()
-          signature = b'\x89PNG\r\n\x1a\n'
-          if not raw.startswith(signature):
-              raise SystemExit('Logo geçerli bir PNG imzası taşımıyor.')
-          position = len(signature)
-          repaired = bytearray(signature)
-          while position < len(raw):
-              if position + 12 > len(raw):
-                  raise SystemExit('Logo PNG parçası yarım kalmış.')
-              length = struct.unpack('>I', raw[position:position + 4])[0]
-              chunk_type = raw[position + 4:position + 8]
-              data_start = position + 8
-              data_end = data_start + length
-              if data_end + 4 > len(raw):
-                  raise SystemExit('Logo PNG parça uzunluğu geçersiz.')
-              chunk_data = raw[data_start:data_end]
-              crc = binascii.crc32(chunk_type + chunk_data) & 0xffffffff
-              repaired.extend(struct.pack('>I', length))
-              repaired.extend(chunk_type)
-              repaired.extend(chunk_data)
-              repaired.extend(struct.pack('>I', crc))
-              position = data_end + 4
-              if chunk_type == b'IEND':
-                  break
-          logo.write_bytes(bytes(repaired))
-          print('Logo PNG CRC değerleri yeniden hesaplandı.')
+          logo.write_bytes(bytes(png))
+          print(f'Şeffaf LP adaptif ikon üretildi: {len(png)} bayt.')
           PY
       - uses: actions/setup-java@v4
         with:
