@@ -58,8 +58,8 @@ Future<void> _tapText(WidgetTester tester, String text) async {
   await tester.ensureVisible(target);
   await tester.pumpAndSettle();
 
-  final logicalHeight = tester.view.physicalSize.height /
-      tester.view.devicePixelRatio;
+  final logicalHeight =
+      tester.view.physicalSize.height / tester.view.devicePixelRatio;
   if (tester.getRect(target).bottom > logicalHeight - 82) {
     final lists = find.byType(ListView);
     if (lists.evaluate().isNotEmpty) {
@@ -73,6 +73,20 @@ Future<void> _tapText(WidgetTester tester, String text) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _tapNavigation(
+  WidgetTester tester,
+  IconData icon,
+) async {
+  final navigationBar = find.byType(NavigationBar);
+  final target = find.descendant(
+    of: navigationBar,
+    matching: find.byIcon(icon),
+  );
+  expect(target, findsOneWidget);
+  await tester.tap(target);
+  await tester.pumpAndSettle();
+}
+
 Finder _dialogFields() => find.descendant(
       of: find.byType(AlertDialog),
       matching: find.byType(TextFormField),
@@ -82,7 +96,7 @@ Future<void> _addPerson(
   WidgetTester tester,
   MizanController controller,
 ) async {
-  await _tapText(tester, 'Kişiler');
+  await _tapNavigation(tester, Icons.people_alt_outlined);
   await _tapText(tester, 'Kişi ekle');
   await tester.enterText(_dialogFields().first, 'Test Kişi');
   await _tapText(tester, 'Kaydet');
@@ -90,10 +104,11 @@ Future<void> _addPerson(
 }
 
 void main() {
-  testWidgets('412 pikselde tüm ana sekmeler yatay taşma üretmez', (tester) async {
+  testWidgets('412 pikselde tüm ana sekmeler yatay taşma üretmez',
+      (tester) async {
     await _pumpApp(tester, MizanState.seed());
 
-    await _tapText(tester, 'Kişiler');
+    await _tapNavigation(tester, Icons.people_alt_outlined);
     expect(find.text('Kişiler ve ödemeler'), findsOneWidget);
     expect(
       tester.takeException(),
@@ -101,7 +116,7 @@ void main() {
       reason: 'Kişiler sekmesinde taşma veya render hatası oluştu.',
     );
 
-    await _tapText(tester, 'Giderler');
+    await _tapNavigation(tester, Icons.shopping_bag_outlined);
     expect(
       find.text(
         'Borç, fatura ve kiradan bağımsız kategori bazlı harcama takibi',
@@ -114,7 +129,7 @@ void main() {
       reason: 'Giderler sekmesinde taşma veya render hatası oluştu.',
     );
 
-    await _tapText(tester, 'Raporlar');
+    await _tapNavigation(tester, Icons.bar_chart_outlined);
     expect(
       find.text(
         'Kişi, ay, borç türü ve durum filtreleriyle hesaplanan ayrıntılı toplamlar',
@@ -127,7 +142,7 @@ void main() {
       reason: 'Raporlar sekmesinde taşma veya render hatası oluştu.',
     );
 
-    await _tapText(tester, 'Ayarlar');
+    await _tapNavigation(tester, Icons.settings_outlined);
     expect(
       find.text(
         'Gerçek Android bildirimleri, yerel kayıt sağlığı ve güvenli sıfırlama',
@@ -140,7 +155,7 @@ void main() {
       reason: 'Ayarlar sekmesinde taşma veya render hatası oluştu.',
     );
 
-    await _tapText(tester, 'Ana sayfa');
+    await _tapNavigation(tester, Icons.space_dashboard_outlined);
     expect(find.text('Kritik ödemeler'), findsOneWidget);
     expect(
       tester.takeException(),
@@ -149,7 +164,8 @@ void main() {
     );
   });
 
-  testWidgets('kişi banka borç ödeme ve not butonları kaynak kaydı günceller', (tester) async {
+  testWidgets('kişi banka borç ödeme ve not butonları kaynak kaydı günceller',
+      (tester) async {
     final controller = await _pumpApp(
       tester,
       MizanState.empty(),
@@ -214,7 +230,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('fatura ve kira formları butonlardan açılır ve ayrı kaydedilir', (tester) async {
+  testWidgets('fatura ve kira formları butonlardan açılır ve ayrı kaydedilir',
+      (tester) async {
     final controller = await _pumpApp(
       tester,
       MizanState.empty(),
@@ -248,13 +265,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('gider kategori ekle düzenle harcama ekle ve onaylı sil akışı çalışır', (tester) async {
+  testWidgets(
+      'gider kategori ekle düzenle harcama ekle ve onaylı sil akışı çalışır',
+      (tester) async {
     final controller = await _pumpApp(
       tester,
       MizanState.empty(),
       size: const Size(500, 1400),
     );
-    await _tapText(tester, 'Giderler');
+    await _tapNavigation(tester, Icons.shopping_bag_outlined);
 
     await _tapText(tester, 'Kategori');
     await tester.enterText(_dialogFields().first, 'Market Test');
@@ -290,13 +309,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('ayar butonları bildirim durumunu ve mesajı kaydeder, sıfırlama vazgeçilebilir', (tester) async {
+  testWidgets(
+      'ayar butonları bildirim durumunu ve mesajı kaydeder, sıfırlama vazgeçilebilir',
+      (tester) async {
     final controller = await _pumpApp(
       tester,
       MizanState.seed(),
       size: const Size(500, 1400),
     );
-    await _tapText(tester, 'Ayarlar');
+    await _tapNavigation(tester, Icons.settings_outlined);
 
     await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
