@@ -1,0 +1,37 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lefferion_prime_mizan/controllers/mizan_controller.dart';
+import 'package:lefferion_prime_mizan/main.dart';
+import 'package:lefferion_prime_mizan/models/mizan_models.dart';
+import 'package:lefferion_prime_mizan/services/local_store.dart';
+
+class MemoryStore implements MizanStore {
+  MemoryStore(this.state);
+  MizanState state;
+  @override Future<StoreLoadResult> load() async => StoreLoadResult(state: state, source: StoreLoadSource.primary);
+  @override Future<void> reset(MizanState value) async => state = value;
+  @override Future<void> save(MizanState value) async => state = value;
+}
+
+Future<void> pumpAt(WidgetTester tester, Size size, {double scale = 1}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = scale;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+  final controller = MizanController(MemoryStore(MizanState.seed()));
+  await controller.load();
+  await tester.pumpWidget(MizanApp(controller: controller));
+  await tester.pumpAndSettle();
+  expect(tester.takeException(), isNull);
+}
+
+void main() {
+  testWidgets('320x568 ekranda taşma yok', (tester) => pumpAt(tester, const Size(320, 568)));
+  testWidgets('360x800 ekranda taşma yok', (tester) => pumpAt(tester, const Size(360, 800)));
+  testWidgets('412x915 ekranda taşma yok', (tester) => pumpAt(tester, const Size(412, 915)));
+  testWidgets('tablet yatay ekranda taşma yok', (tester) => pumpAt(tester, const Size(1180, 820)));
+  testWidgets('büyük yazı ölçeğinde ana ekran taşmaz', (tester) => pumpAt(tester, const Size(412, 915), scale: 2));
+}

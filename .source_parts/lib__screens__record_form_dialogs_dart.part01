@@ -1,0 +1,106 @@
+        DropdownButtonFormField<BillKind>(initialValue:kind, decoration:const InputDecoration(labelText:'Fatura türü'), items:[for(final item in BillKind.values) DropdownMenuItem(value:item,child:Text(item.label))], onChanged:(v)=>setState(()=>kind=v??kind)),
+        TextFormField(controller:institution,maxLength:100,decoration:const InputDecoration(labelText:'Kurum adı'),validator:(v)=>_required(v,'Kurum adı')),
+        _MoneyField(controller:amount,label:'Tutar',validator:(v)=>_moneyValidator(v,'Tutar')),
+        _DateField(label:'Son ödeme tarihi',value:dueDate,onChanged:(v)=>setState(()=>dueDate=v)),
+        TextFormField(controller:subscriber,maxLength:60,decoration:const InputDecoration(labelText:'Abone numarası')),
+        TextFormField(controller:contract,maxLength:60,decoration:const InputDecoration(labelText:'Tesisat / sözleşme numarası')),
+        TextFormField(controller:description,maxLength:240,minLines:2,maxLines:5,decoration:const InputDecoration(labelText:'Açıklama')),
+      ],
+      onSave:()=>widget.bill==null
+        ? widget.controller.addBill(personId:widget.person.id,kind:kind,institutionName:institution.text,amount:parseMoney(amount.text),dueDate:dueDate,subscriberNumber:subscriber.text,contractNumber:contract.text,description:description.text)
+        : widget.controller.updateBill(personId:widget.person.id,billId:widget.bill!.id,kind:kind,institutionName:institution.text,amount:parseMoney(amount.text),dueDate:dueDate,subscriberNumber:subscriber.text,contractNumber:contract.text,description:description.text),
+    );
+  }
+}
+
+class _RentForm extends StatefulWidget {
+  const _RentForm({required this.controller, required this.person, this.rent});
+  final MizanController controller; final PersonAccount person; final RentEntry? rent;
+  @override State<_RentForm> createState()=>_RentFormState();
+}
+class _RentFormState extends State<_RentForm>{
+  final key=GlobalKey<FormState>();
+  late DateTime dueDate; DateTime? contractStart,contractEnd,increaseDate;
+  late final TextEditingController title,amount,paymentDay,receiver,iban,installmentCount,currentInstallment,description;
+  @override void initState(){super.initState();final i=widget.rent;dueDate=i?.dueDate??dateOnly(DateTime.now().add(const Duration(days:7)));contractStart=i?.contractStart;contractEnd=i?.contractEnd;increaseDate=i?.increaseDate;title=TextEditingController(text:i?.title??'');amount=TextEditingController(text:i==null?'':decimalText(i.amount));paymentDay=TextEditingController(text:i?.paymentDay.toString()??dueDate.day.toString());receiver=TextEditingController(text:i?.receiverName??'');iban=TextEditingController(text:i?.iban??'');installmentCount=TextEditingController(text:i?.installmentCount?.toString()??'');currentInstallment=TextEditingController(text:i?.currentInstallment?.toString()??'');description=TextEditingController(text:i?.description??'');}
+  @override void dispose(){for(final c in [title,amount,paymentDay,receiver,iban,installmentCount,currentInstallment,description]){c.dispose();}super.dispose();}
+  @override Widget build(BuildContext context)=>_DialogShell(
+    title:widget.rent==null?'Kira / taksit ekle':'Kira / taksiti düzenle',formKey:key,
+    children:[
+      TextFormField(controller:title,maxLength:100,decoration:const InputDecoration(labelText:'Başlık'),validator:(v)=>_required(v,'Başlık')),
+      _MoneyField(controller:amount,label:'Toplam tutar',validator:(v)=>_moneyValidator(v,'Toplam tutar')),
+      TextFormField(controller:paymentDay,keyboardType:TextInputType.number,inputFormatters:[FilteringTextInputFormatter.digitsOnly],decoration:const InputDecoration(labelText:'Ödeme günü (1-31)'),validator:(v){final n=int.tryParse(v??'');return n==null||n<1||n>31?'1 ile 31 arasında bir gün girin.':null;}),
+      TextFormField(controller:receiver,maxLength:100,decoration:const InputDecoration(labelText:'Alıcı adı'),validator:(v)=>_required(v,'Alıcı adı')),
+      TextFormField(controller:iban,maxLength:40,textCapitalization:TextCapitalization.characters,decoration:const InputDecoration(labelText:'IBAN (opsiyonel)')),
+      _DateField(label:'Son ödeme tarihi',value:dueDate,onChanged:(v)=>setState(()=>dueDate=v)),
+      _OptionalDateField(label:'Sözleşme başlangıcı',value:contractStart,onChanged:(v)=>setState(()=>contractStart=v)),
+      _OptionalDateField(label:'Sözleşme bitişi',value:contractEnd,onChanged:(v)=>setState(()=>contractEnd=v)),
+      _OptionalDateField(label:'Artış tarihi',value:increaseDate,onChanged:(v)=>setState(()=>increaseDate=v)),
+      _TwoColumn(left:TextFormField(controller:installmentCount,keyboardType:TextInputType.number,inputFormatters:[FilteringTextInputFormatter.digitsOnly],decoration:const InputDecoration(labelText:'Toplam taksit')),right:TextFormField(controller:currentInstallment,keyboardType:TextInputType.number,inputFormatters:[FilteringTextInputFormatter.digitsOnly],decoration:const InputDecoration(labelText:'Mevcut taksit'))),
+      TextFormField(controller:description,maxLength:240,minLines:2,maxLines:5,decoration:const InputDecoration(labelText:'Açıklama')),
+    ],
+    onSave:(){
+      final args=(personId:widget.person.id,title:title.text,amount:parseMoney(amount.text),paymentDay:int.parse(paymentDay.text),receiverName:receiver.text,dueDate:dueDate,iban:iban.text,contractStart:contractStart,contractEnd:contractEnd,increaseDate:increaseDate,installmentCount:parseOptionalPositiveInt(installmentCount.text,fieldName:'Toplam taksit'),currentInstallment:parseOptionalPositiveInt(currentInstallment.text,fieldName:'Mevcut taksit'),description:description.text);
+      return widget.rent==null
+        ? widget.controller.addRent(personId:args.personId,title:args.title,amount:args.amount,paymentDay:args.paymentDay,receiverName:args.receiverName,dueDate:args.dueDate,iban:args.iban,contractStart:args.contractStart,contractEnd:args.contractEnd,increaseDate:args.increaseDate,installmentCount:args.installmentCount,currentInstallment:args.currentInstallment,description:args.description)
+        : widget.controller.updateRent(personId:args.personId,rentId:widget.rent!.id,title:args.title,amount:args.amount,paymentDay:args.paymentDay,receiverName:args.receiverName,dueDate:args.dueDate,iban:args.iban,contractStart:args.contractStart,contractEnd:args.contractEnd,increaseDate:args.increaseDate,installmentCount:args.installmentCount,currentInstallment:args.currentInstallment,description:args.description);
+    },
+  );
+}
+
+class _PaymentForm extends StatefulWidget{
+  const _PaymentForm({required this.controller,required this.personId,required this.type,required this.sourceId,required this.remainingAmount,this.payment});
+  final MizanController controller;final String personId;final RecordType type;final String sourceId;final double remainingAmount;final PaymentRecord? payment;
+  @override State<_PaymentForm> createState()=>_PaymentFormState();
+}
+class _PaymentFormState extends State<_PaymentForm>{
+  final key=GlobalKey<FormState>();late DateTime paidAt;late final TextEditingController amount,note,method;
+  @override void initState(){super.initState();paidAt=widget.payment?.paidAt??dateOnly(DateTime.now());amount=TextEditingController(text:widget.payment==null?decimalText(widget.remainingAmount):decimalText(widget.payment!.amount));note=TextEditingController(text:widget.payment?.note??'');method=TextEditingController(text:widget.payment?.method??'');}
+  @override void dispose(){amount.dispose();note.dispose();method.dispose();super.dispose();}
+  @override Widget build(BuildContext context)=>_DialogShell(
+    title:widget.payment==null?'Ödeme ekle':'Ödemeyi düzenle',formKey:key,
+    children:[
+      Text('Kalan tutar: ${money(widget.remainingAmount)}',style:const TextStyle(fontWeight:FontWeight.w800)),
+      _MoneyField(controller:amount,label:'Ödeme tutarı',validator:(v)=>_moneyValidator(v,'Ödeme tutarı')),
+      _DateField(label:'Ödeme tarihi',value:paidAt,onChanged:(v)=>setState(()=>paidAt=v)),
+      TextFormField(controller:method,maxLength:80,decoration:const InputDecoration(labelText:'Ödeme yöntemi (opsiyonel)')),
+      TextFormField(controller:note,maxLength:240,minLines:2,maxLines:5,decoration:const InputDecoration(labelText:'Ödeme notu (opsiyonel)')),
+    ],
+    onSave:()=>widget.payment==null
+      ? widget.controller.addPayment(personId:widget.personId,type:widget.type,sourceId:widget.sourceId,amount:parseMoney(amount.text),paidAt:paidAt,note:note.text,method:method.text)
+      : widget.controller.updatePayment(personId:widget.personId,type:widget.type,sourceId:widget.sourceId,paymentId:widget.payment!.id,amount:parseMoney(amount.text),paidAt:paidAt,note:note.text,method:method.text),
+  );
+}
+
+class _MoneyField extends StatelessWidget{
+  const _MoneyField({required this.controller,required this.label,this.validator,this.requiredValue=true});
+  final TextEditingController controller;final String label;final String? Function(String?)? validator;final bool requiredValue;
+  @override Widget build(BuildContext context)=>TextFormField(
+    controller:controller,keyboardType:const TextInputType.numberWithOptions(decimal:true),
+    inputFormatters:[FilteringTextInputFormatter.allow(RegExp(r'[0-9.,\s]'))],
+    decoration:InputDecoration(labelText:label,suffixText:'TL'),
+    validator:validator??(requiredValue?(v)=>_moneyValidator(v,label):(v){if(v==null||v.trim().isEmpty)return null;return _moneyValidator(v,label,allowZero:true);}),
+  );
+}
+
+class _DateField extends StatelessWidget{
+  const _DateField({required this.label,required this.value,required this.onChanged});
+  final String label;final DateTime value;final ValueChanged<DateTime> onChanged;
+  @override Widget build(BuildContext context)=>InkWell(
+    onTap:()async{final selected=await showDatePicker(context:context,initialDate:value,firstDate:DateTime(2000),lastDate:DateTime(2100));if(selected!=null)onChanged(selected);},
+    borderRadius:BorderRadius.circular(14),
+    child:InputDecorator(decoration:InputDecoration(labelText:label,suffixIcon:const Icon(Icons.calendar_month_outlined)),child:Text(shortDate(value),style:const TextStyle(fontWeight:FontWeight.w800))),
+  );
+}
+class _OptionalDateField extends StatelessWidget{
+  const _OptionalDateField({required this.label,required this.value,required this.onChanged});
+  final String label;final DateTime? value;final ValueChanged<DateTime?> onChanged;
+  @override Widget build(BuildContext context)=>Row(children:[Expanded(child:InkWell(
+    onTap:()async{final selected=await showDatePicker(context:context,initialDate:value??DateTime.now(),firstDate:DateTime(2000),lastDate:DateTime(2100));if(selected!=null)onChanged(selected);},
+    borderRadius:BorderRadius.circular(14),child:InputDecorator(decoration:InputDecoration(labelText:label,suffixIcon:const Icon(Icons.calendar_month_outlined)),child:Text(value==null?'Seçilmedi':shortDate(value!),style:const TextStyle(fontWeight:FontWeight.w800))),
+  )),if(value!=null)IconButton(tooltip:'Tarihi temizle',onPressed:()=>onChanged(null),icon:const Icon(Icons.clear))]);
+}
+class _TwoColumn extends StatelessWidget{
+  const _TwoColumn({required this.left,required this.right});final Widget left;final Widget right;
+  @override Widget build(BuildContext context)=>LayoutBuilder(builder:(context,c){if(c.maxWidth<480||MediaQuery.textScalerOf(context).scale(1)>1.3){return Column(children:[left,const SizedBox(height:12),right]);}return Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:left),const SizedBox(width:12),Expanded(child:right)]);});
+}

@@ -1,0 +1,492 @@
+    final days = _daysUntil(dueDate, reference);
+    if (days < 0) return PaymentStatus.overdue;
+    if (days <= 5) return PaymentStatus.upcoming;
+    return PaymentStatus.active;
+  }
+
+  PaymentStatus get status => statusAt(DateTime.now());
+
+  bool isDueInMonth(DateTime month) =>
+      dueDate.year == month.year && dueDate.month == month.month;
+
+  RentEntry copyWith({
+    String? title,
+    double? amount,
+    int? paymentDay,
+    String? receiverName,
+    String? iban,
+    DateTime? dueDate,
+    DateTime? contractStart,
+    DateTime? contractEnd,
+    DateTime? increaseDate,
+    int? installmentCount,
+    int? currentInstallment,
+    String? description,
+    bool? isArchived,
+    List<PaymentRecord>? payments,
+    List<RecordNote>? notes,
+  }) {
+    return RentEntry(
+      id: id,
+      title: title ?? this.title,
+      amount: amount ?? this.amount,
+      paymentDay: paymentDay ?? this.paymentDay,
+      receiverName: receiverName ?? this.receiverName,
+      iban: iban ?? this.iban,
+      dueDate: dueDate ?? this.dueDate,
+      contractStart: contractStart ?? this.contractStart,
+      contractEnd: contractEnd ?? this.contractEnd,
+      increaseDate: increaseDate ?? this.increaseDate,
+      installmentCount: installmentCount ?? this.installmentCount,
+      currentInstallment: currentInstallment ?? this.currentInstallment,
+      description: description ?? this.description,
+      isArchived: isArchived ?? this.isArchived,
+      payments: payments ?? this.payments,
+      notes: notes ?? this.notes,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'amount': amount,
+        'paymentDay': paymentDay,
+        'receiverName': receiverName,
+        'iban': iban,
+        'dueDate': dueDate.toIso8601String(),
+        'contractStart': contractStart?.toIso8601String(),
+        'contractEnd': contractEnd?.toIso8601String(),
+        'increaseDate': increaseDate?.toIso8601String(),
+        'installmentCount': installmentCount,
+        'currentInstallment': currentInstallment,
+        'description': description,
+        'isArchived': isArchived,
+        'payments': payments.map((item) => item.toJson()).toList(),
+        'notes': notes.map((item) => item.toJson()).toList(),
+      };
+
+  factory RentEntry.fromJson(Map<String, dynamic> json) {
+    return RentEntry(
+      id: _string(json['id']),
+      title: _string(json['title']),
+      amount: _safeAmount(json['amount'] as num?),
+      paymentDay: (_intOrNull(json['paymentDay']) ?? 1).clamp(1, 31).toInt(),
+      receiverName: _string(json['receiverName']),
+      iban: _string(json['iban']),
+      dueDate: _date(json['dueDate']),
+      contractStart: _dateOrNull(json['contractStart']),
+      contractEnd: _dateOrNull(json['contractEnd']),
+      increaseDate: _dateOrNull(json['increaseDate']),
+      installmentCount: _intOrNull(json['installmentCount']),
+      currentInstallment: _intOrNull(json['currentInstallment']),
+      description: _string(json['description']),
+      isArchived: json['isArchived'] as bool? ?? false,
+      payments: _paymentList(json['payments']),
+      notes: _noteList(json['notes']),
+    );
+  }
+}
+
+class PersonAccount {
+  const PersonAccount({
+    required this.id,
+    required this.name,
+    this.banks = const [],
+    this.bills = const [],
+    this.rents = const [],
+  });
+
+  final String id;
+  final String name;
+  final List<BankGroup> banks;
+  final List<BillEntry> bills;
+  final List<RentEntry> rents;
+
+  double get totalDebt {
+    final bankTotal = banks.fold(0, (sum, bank) => sum + bank.totalDebt);
+    final billTotal = bills.fold(0, (sum, bill) => sum + bill.remainingAmount);
+    final rentTotal = rents.fold(0, (sum, rent) => sum + rent.remainingAmount);
+    return bankTotal + billTotal + rentTotal;
+  }
+
+  double monthlyLoadFor(DateTime month) {
+    final bankTotal = banks.fold(0, (sum, bank) => sum + bank.monthlyLoadFor(month));
+    final billTotal = bills
+        .where((bill) =>
+            !bill.isArchived && bill.remainingAmount > 0 && bill.isDueInMonth(month))
+        .fold(0, (sum, bill) => sum + bill.remainingAmount);
+    final rentTotal = rents
+        .where((rent) =>
+            !rent.isArchived && rent.remainingAmount > 0 && rent.isDueInMonth(month))
+        .fold(0, (sum, rent) => sum + rent.remainingAmount);
+    return bankTotal + billTotal + rentTotal;
+  }
+
+  int overdueCountAt(DateTime reference) {
+    final debtCount = banks
+        .expand((bank) => bank.products)
+        .where((product) => product.statusAt(reference) == PaymentStatus.overdue)
+        .length;
+    final billCount = bills
+        .where((bill) => bill.statusAt(reference) == PaymentStatus.overdue)
+        .length;
+    final rentCount = rents
+        .where((rent) => rent.statusAt(reference) == PaymentStatus.overdue)
+        .length;
+    return debtCount + billCount + rentCount;
+  }
+
+  PersonAccount copyWith({
+    String? name,
+    List<BankGroup>? banks,
+    List<BillEntry>? bills,
+    List<RentEntry>? rents,
+  }) {
+    return PersonAccount(
+      id: id,
+      name: name ?? this.name,
+      banks: banks ?? this.banks,
+      bills: bills ?? this.bills,
+      rents: rents ?? this.rents,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'banks': banks.map((item) => item.toJson()).toList(),
+        'bills': bills.map((item) => item.toJson()).toList(),
+        'rents': rents.map((item) => item.toJson()).toList(),
+      };
+
+  factory PersonAccount.fromJson(Map<String, dynamic> json) {
+    return PersonAccount(
+      id: _string(json['id']),
+      name: _string(json['name']),
+      banks: ((json['banks'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => BankGroup.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+      bills: ((json['bills'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => BillEntry.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+      rents: ((json['rents'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => RentEntry.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+    );
+  }
+}
+
+class ExpenseCategory {
+  const ExpenseCategory({
+    required this.id,
+    required this.name,
+    this.colorValue = 0xFF1F7A5A,
+  });
+
+  final String id;
+  final String name;
+  final int colorValue;
+
+  ExpenseCategory copyWith({String? name, int? colorValue}) {
+    return ExpenseCategory(
+      id: id,
+      name: name ?? this.name,
+      colorValue: colorValue ?? this.colorValue,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'colorValue': colorValue,
+      };
+
+  factory ExpenseCategory.fromJson(Map<String, dynamic> json) {
+    return ExpenseCategory(
+      id: _string(json['id']),
+      name: _string(json['name']),
+      colorValue: _intOrNull(json['colorValue']) ?? 0xFF1F7A5A,
+    );
+  }
+}
+
+class ExpenseItem {
+  const ExpenseItem({
+    required this.id,
+    required this.categoryId,
+    required this.name,
+    required this.quantity,
+    required this.unitPrice,
+    required this.spentAt,
+    this.note = '',
+  });
+
+  final String id;
+  final String categoryId;
+  final String name;
+  final double quantity;
+  final double unitPrice;
+  final DateTime spentAt;
+  final String note;
+
+  double get totalAmount =>
+      double.parse((quantity * unitPrice).toStringAsFixed(2));
+
+  ExpenseItem copyWith({
+    String? categoryId,
+    String? name,
+    double? quantity,
+    double? unitPrice,
+    DateTime? spentAt,
+    String? note,
+  }) {
+    return ExpenseItem(
+      id: id,
+      categoryId: categoryId ?? this.categoryId,
+      name: name ?? this.name,
+      quantity: quantity ?? this.quantity,
+      unitPrice: unitPrice ?? this.unitPrice,
+      spentAt: spentAt ?? this.spentAt,
+      note: note ?? this.note,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'categoryId': categoryId,
+        'name': name,
+        'quantity': quantity,
+        'unitPrice': unitPrice,
+        'spentAt': spentAt.toIso8601String(),
+        'note': note,
+      };
+
+  factory ExpenseItem.fromJson(Map<String, dynamic> json) {
+    return ExpenseItem(
+      id: _string(json['id']),
+      categoryId: _string(json['categoryId']),
+      name: _string(json['name']),
+      quantity: (json['quantity'] as num?)?.toDouble() ?? 1,
+      unitPrice: _safeAmount(json['unitPrice'] as num?),
+      spentAt: _date(json['spentAt']),
+      note: _string(json['note']),
+    );
+  }
+}
+
+class NotificationSlot {
+  const NotificationSlot({
+    required this.id,
+    required this.label,
+    required this.hour,
+    required this.minute,
+    required this.message,
+    this.enabled = true,
+  });
+
+  final String id;
+  final String label;
+  final int hour;
+  final int minute;
+  final String message;
+  final bool enabled;
+
+  NotificationSlot copyWith({
+    int? hour,
+    int? minute,
+    String? message,
+    bool? enabled,
+  }) {
+    return NotificationSlot(
+      id: id,
+      label: label,
+      hour: hour ?? this.hour,
+      minute: minute ?? this.minute,
+      message: message ?? this.message,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'label': label,
+        'hour': hour,
+        'minute': minute,
+        'message': message,
+        'enabled': enabled,
+      };
+
+  factory NotificationSlot.fromJson(Map<String, dynamic> json) {
+    return NotificationSlot(
+      id: _string(json['id']),
+      label: _string(json['label']),
+      hour: (_intOrNull(json['hour']) ?? 7).clamp(0, 23).toInt(),
+      minute: (_intOrNull(json['minute']) ?? 0).clamp(0, 59).toInt(),
+      message: _string(json['message']),
+      enabled: json['enabled'] as bool? ?? true,
+    );
+  }
+}
+
+class RecordReference {
+  const RecordReference({
+    required this.type,
+    required this.personId,
+    required this.sourceId,
+    required this.title,
+    required this.subtitle,
+    required this.amount,
+    required this.dueDate,
+    required this.status,
+  });
+
+  final RecordType type;
+  final String personId;
+  final String sourceId;
+  final String title;
+  final String subtitle;
+  final double amount;
+  final DateTime dueDate;
+  final PaymentStatus status;
+}
+
+class MizanState {
+  const MizanState({
+    required this.people,
+    required this.expenseCategories,
+    required this.expenses,
+    required this.notificationSlots,
+    this.notificationsEnabled = true,
+    this.schemaVersion = currentSchemaVersion,
+  });
+
+  final int schemaVersion;
+  final List<PersonAccount> people;
+  final List<ExpenseCategory> expenseCategories;
+  final List<ExpenseItem> expenses;
+  final List<NotificationSlot> notificationSlots;
+  final bool notificationsEnabled;
+
+  double get totalDebt => people.fold(0, (sum, person) => sum + person.totalDebt);
+
+  double monthlyDebtLoadFor(DateTime month) =>
+      people.fold(0, (sum, person) => sum + person.monthlyLoadFor(month));
+
+  double expenseTotalForDay(DateTime day) => expenses
+      .where((item) =>
+          item.spentAt.year == day.year &&
+          item.spentAt.month == day.month &&
+          item.spentAt.day == day.day)
+      .fold(0, (sum, item) => sum + item.totalAmount);
+
+  double expenseTotalForMonth(DateTime month) => expenses
+      .where((item) =>
+          item.spentAt.year == month.year && item.spentAt.month == month.month)
+      .fold(0, (sum, item) => sum + item.totalAmount);
+
+  double expenseTotalForRange(DateTime start, DateTime endInclusive) => expenses
+      .where((item) {
+        final day = _dateOnly(item.spentAt);
+        return !day.isBefore(_dateOnly(start)) &&
+            !day.isAfter(_dateOnly(endInclusive));
+      })
+      .fold(0, (sum, item) => sum + item.totalAmount);
+
+  List<DebtProduct> get allDebtProducts => people
+      .expand((person) => person.banks)
+      .expand((bank) => bank.products)
+      .toList(growable: false);
+
+  List<BillEntry> get allBills =>
+      people.expand((person) => person.bills).toList(growable: false);
+
+  List<RentEntry> get allRents =>
+      people.expand((person) => person.rents).toList(growable: false);
+
+  List<RecordReference> recordReferencesAt(DateTime reference) {
+    final items = <RecordReference>[];
+    for (final person in people) {
+      for (final bank in person.banks) {
+        for (final product in bank.products) {
+          items.add(
+            RecordReference(
+              type: RecordType.debt,
+              personId: person.id,
+              sourceId: product.id,
+              title: product.title,
+              subtitle: '${person.name} · ${bank.userWrittenName} · ${product.displayKind}',
+              amount: product.remainingAmount,
+              dueDate: product.dueDate,
+              status: product.statusAt(reference),
+            ),
+          );
+        }
+      }
+      for (final bill in person.bills) {
+        items.add(
+          RecordReference(
+            type: RecordType.bill,
+            personId: person.id,
+            sourceId: bill.id,
+            title: bill.kind.label,
+            subtitle: '${person.name} · ${bill.institutionName}',
+            amount: bill.remainingAmount,
+            dueDate: bill.dueDate,
+            status: bill.statusAt(reference),
+          ),
+        );
+      }
+      for (final rent in person.rents) {
+        items.add(
+          RecordReference(
+            type: RecordType.rent,
+            personId: person.id,
+            sourceId: rent.id,
+            title: rent.title,
+            subtitle: '${person.name} · ${rent.receiverName}',
+            amount: rent.remainingAmount,
+            dueDate: rent.dueDate,
+            status: rent.statusAt(reference),
+          ),
+        );
+      }
+    }
+    return items;
+  }
+
+  double expenseTotalForCategory(String categoryId, {Iterable<ExpenseItem>? source}) {
+    return (source ?? expenses)
+        .where((item) => item.categoryId == categoryId)
+        .fold(0, (sum, item) => sum + item.totalAmount);
+  }
+
+  List<ExpenseItem> expensesForCategory(String categoryId) {
+    final result = expenses
+        .where((item) => item.categoryId == categoryId)
+        .toList(growable: false);
+    return result..sort((a, b) => b.spentAt.compareTo(a.spentAt));
+  }
+
+  MizanState copyWith({
+    List<PersonAccount>? people,
+    List<ExpenseCategory>? expenseCategories,
+    List<ExpenseItem>? expenses,
+    List<NotificationSlot>? notificationSlots,
+    bool? notificationsEnabled,
+    int? schemaVersion,
+  }) {
+    return MizanState(
+      people: people ?? this.people,
+      expenseCategories: expenseCategories ?? this.expenseCategories,
+      expenses: expenses ?? this.expenses,
+      notificationSlots: notificationSlots ?? this.notificationSlots,
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      schemaVersion: schemaVersion ?? this.schemaVersion,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'schemaVersion': schemaVersion,

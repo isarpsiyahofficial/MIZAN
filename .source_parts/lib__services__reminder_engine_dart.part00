@@ -1,0 +1,110 @@
+import '../core/formatters.dart';
+import '../models/mizan_models.dart';
+
+enum ReminderKind { payment, expense }
+
+class ScheduledReminder {
+  const ScheduledReminder({
+    required this.id,
+    required this.sourceId,
+    required this.kind,
+    required this.title,
+    required this.message,
+    required this.scheduledAt,
+    this.repeatsDaily = false,
+  });
+
+  final int id;
+  final String sourceId;
+  final ReminderKind kind;
+  final String title;
+  final String message;
+  final DateTime scheduledAt;
+  final bool repeatsDaily;
+}
+
+class ReminderPlanBuilder {
+  const ReminderPlanBuilder();
+
+  List<ScheduledReminder> build({
+    required MizanState state,
+    required DateTime now,
+    int maximumPaymentReminders = 450,
+  }) {
+    if (!state.notificationsEnabled) return const [];
+    final reminders = <ScheduledReminder>[
+      ..._expenseReminders(state, now),
+      ..._paymentReminders(state, now),
+    ];
+    final expense = reminders.where((item) => item.kind == ReminderKind.expense).toList();
+    final payment = reminders.where((item) => item.kind == ReminderKind.payment).toList()
+      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+    return [
+      ...expense,
+      ...payment.take(maximumPaymentReminders),
+    ];
+  }
+
+  List<ScheduledReminder> _expenseReminders(MizanState state, DateTime now) {
+    return [
+      for (final slot in state.notificationSlots)
+        if (slot.enabled)
+          ScheduledReminder(
+            id: stableNotificationId('expense-${slot.id}'),
+            sourceId: slot.id,
+            kind: ReminderKind.expense,
+            title: slot.label,
+            message: slot.message,
+            scheduledAt: _nextTime(now, slot.hour, slot.minute),
+            repeatsDaily: true,
+          ),
+    ];
+  }
+
+  DateTime _nextTime(DateTime now, int hour, int minute) {
+    var result = DateTime(now.year, now.month, now.day, hour, minute);
+    if (!result.isAfter(now)) {
+      result = result.add(const Duration(days: 1));
+    }
+    return result;
+  }
+
+  List<ScheduledReminder> _paymentReminders(MizanState state, DateTime now) {
+    final reminders = <ScheduledReminder>[];
+    for (final record in state.recordReferencesAt(now)) {
+      if (record.amount <= 0 ||
+          record.status == PaymentStatus.completed ||
+          record.status == PaymentStatus.passive) {
+        continue;
+      }
+      final dueDay = dateOnly(record.dueDate);
+      final start = dueDay.subtract(const Duration(days: 5));
+      final end = dueDay.add(const Duration(days: 5));
+      for (var day = start; !day.isAfter(end); day = day.add(const Duration(days: 1))) {
+        for (final hour in const [9, 18]) {
+          final scheduledAt = DateTime(day.year, day.month, day.day, hour);
+          if (!scheduledAt.isAfter(now)) continue;
+          final difference = calendarDaysBetween(day, dueDay);
+          final timingText = difference > 0
+              ? 'Son ödeme tarihine $difference gün kaldı.'
+              : difference == 0
+                  ? 'Son ödeme tarihi bugün.'
+                  : 'Ödeme ${difference.abs()} gün gecikti.';
+          reminders.add(
+            ScheduledReminder(
+              id: stableNotificationId(
+                'payment-${record.sourceId}-${day.year}-${day.month}-${day.day}-$hour',
+              ),
+              sourceId: record.sourceId,
+              kind: ReminderKind.payment,
+              title: '${record.type.label}: ${record.title}',
+              message: '$timingText Kalan tutar ${money(record.amount)}.',
+              scheduledAt: scheduledAt,
+            ),
+          );
+        }
+      }
+    }
+    return reminders;
+  }
+}

@@ -1,0 +1,284 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../controllers/mizan_controller.dart';
+import '../core/formatters.dart';
+import '../core/theme.dart';
+import '../models/mizan_models.dart';
+import '../widgets/mizan_cards.dart';
+
+enum _ExpensePeriod { all, days30, days60, days90, month }
+
+extension on _ExpensePeriod {
+  String get label => switch (this) {
+        _ExpensePeriod.all => 'Tüm tarihler',
+        _ExpensePeriod.days30 => 'Son 30 gün',
+        _ExpensePeriod.days60 => 'Son 60 gün',
+        _ExpensePeriod.days90 => 'Son 90 gün',
+        _ExpensePeriod.month => 'Ay / yıl',
+      };
+}
+
+class ExpensesScreen extends StatefulWidget {
+  const ExpensesScreen({required this.controller, super.key});
+  final MizanController controller;
+  @override
+  State<ExpensesScreen> createState() => _ExpensesScreenState();
+}
+
+class _ExpensesScreenState extends State<ExpensesScreen> {
+  _ExpensePeriod period = _ExpensePeriod.month;
+  DateTime selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  String? categoryFilter;
+  String query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.controller.state;
+    final filtered = _filtered(state);
+    final padding = MediaQuery.sizeOf(context).width < 380 ? 12.0 : 18.0;
+    return ListView(
+      key: const PageStorageKey('expenses'),
+      padding: EdgeInsets.fromLTRB(padding, 18, padding, 100),
+      children: [
+        PageHeader(
+          title: 'Giderler',
+          subtitle: 'Borç, fatura ve kiradan bağımsız kategori bazlı harcama takibi',
+          action: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(onPressed: () => _showCategoryForm(context), icon: const Icon(Icons.create_new_folder_outlined), label: const Text('Kategori')),
+              FilledButton.icon(onPressed: state.expenseCategories.isEmpty ? null : () => _showExpenseForm(context), icon: const Icon(Icons.add_shopping_cart), label: const Text('Harcama')),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        AdaptiveGrid(
+          minTileWidth: 190,
+          children: [
+            MetricCard(label: 'Bugün', value: money(state.expenseTotalForDay(DateTime.now())), color: MizanTheme.orange),
+            MetricCard(label: 'Bu ay', value: money(state.expenseTotalForMonth(DateTime.now())), color: MizanTheme.green),
+            MetricCard(label: 'Filtre toplamı', value: money(filtered.fold<double>(0, (sum, item) => sum + item.totalAmount)), color: MizanTheme.blue),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _Filters(
+          state: state,
+          period: period,
+          selectedMonth: selectedMonth,
+          categoryFilter: categoryFilter,
+          onPeriod: (value) => setState(() => period = value),
+          onMonth: (value) => setState(() => selectedMonth = value),
+          onCategory: (value) => setState(() => categoryFilter = value),
+          onQuery: (value) => setState(() => query = value),
+        ),
+        const SizedBox(height: 20),
+        SectionTitle('Kategoriler', subtitle: '${state.expenseCategories.length} kategori · ${filtered.length} filtrelenmiş harcama'),
+        const SizedBox(height: 10),
+        if (state.expenseCategories.isEmpty)
+          EmptyState(
+            title: 'Gider kategorisi yok',
+            message: 'İlk kategoriyi oluşturarak harcama kaydetmeye başlayabilirsin.',
+            action: FilledButton(onPressed: () => _showCategoryForm(context), child: const Text('Kategori oluştur')),
+          )
+        else
+          for (final category in state.expenseCategories.where((item) => categoryFilter == null || item.id == categoryFilter)) ...[
+            _CategoryCard(
+              controller: widget.controller,
+              category: category,
+              expenses: filtered.where((item) => item.categoryId == category.id).toList(),
+              allExpenseCount: state.expenses.where((item) => item.categoryId == category.id).length,
+              onEditCategory: () => _showCategoryForm(context, category: category),
+              onDeleteCategory: () => _showDeleteCategory(context, category),
+              onAddExpense: () => _showExpenseForm(context, initialCategoryId: category.id),
+              onEditExpense: (expense) => _showExpenseForm(context, expense: expense),
+            ),
+            const SizedBox(height: 12),
+          ],
+      ],
+    );
+  }
+
+  List<ExpenseItem> _filtered(MizanState state) {
+    final now = dateOnly(DateTime.now());
+    final clean = query.trim().toLowerCase();
+    final result = state.expenses.where((item) {
+      if (categoryFilter != null && item.categoryId != categoryFilter) return false;
+      if (clean.isNotEmpty && !'${item.name} ${item.note}'.toLowerCase().contains(clean)) return false;
+      return switch (period) {
+        _ExpensePeriod.all => true,
+        _ExpensePeriod.days30 => !dateOnly(item.spentAt).isBefore(now.subtract(const Duration(days: 29))),
+        _ExpensePeriod.days60 => !dateOnly(item.spentAt).isBefore(now.subtract(const Duration(days: 59))),
+        _ExpensePeriod.days90 => !dateOnly(item.spentAt).isBefore(now.subtract(const Duration(days: 89))),
+        _ExpensePeriod.month => isSameMonth(item.spentAt, selectedMonth),
+      };
+    }).toList();
+    result.sort((a, b) => b.spentAt.compareTo(a.spentAt));
+    return result;
+  }
+
+  Future<void> _showCategoryForm(BuildContext context, {ExpenseCategory? category}) async {
+    final key = GlobalKey<FormState>();
+    final name = TextEditingController(text: category?.name ?? '');
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(category == null ? 'Kategori oluştur' : 'Kategoriyi düzenle'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Form(
+              key: key,
+              child: SingleChildScrollView(
+                child: TextFormField(
+                  controller: name,
+                  maxLength: 60,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(labelText: 'Kategori adı'),
+                  validator: (value) => value == null || value.trim().isEmpty ? 'Kategori adı boş bırakılamaz.' : null,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Vazgeç')),
+            FilledButton(
+              onPressed: () async {
+                if (!(key.currentState?.validate() ?? false)) return;
+                try {
+                  if (category == null) {
+                    await widget.controller.addExpenseCategory(name.text);
+                  } else {
+                    await widget.controller.renameExpenseCategory(categoryId: category.id, name: name.text);
+                  }
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                } on Object catch (error) {
+                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(_errorText(error))));
+                }
+              },
+              child: const Text('Kaydet'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      name.dispose();
+    }
+  }
+
+  Future<void> _showDeleteCategory(BuildContext context, ExpenseCategory category) async {
+    final confirmation = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Kategori ve bağlı harcamaları sil'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 540),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${category.name} kategorisi ve bu kategoriye bağlı ${widget.controller.state.expenses.where((item) => item.categoryId == category.id).length} harcama kalıcı olarak silinecek.'),
+                  const SizedBox(height: 12),
+                  const Text('Onaylamak için tam olarak ONAYLIYORUM yazın.', style: TextStyle(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  TextField(controller: confirmation, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Onay metni')),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Vazgeç')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: MizanTheme.red),
+              onPressed: () async {
+                try {
+                  await widget.controller.deleteExpenseCategory(categoryId: category.id, confirmation: confirmation.text);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                } on Object catch (error) {
+                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(_errorText(error))));
+                }
+              },
+              child: const Text('Kategori ve harcamaları sil'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      confirmation.dispose();
+    }
+  }
+
+  Future<void> _showExpenseForm(BuildContext context, {String? initialCategoryId, ExpenseItem? expense}) async {
+    final categories = widget.controller.state.expenseCategories;
+    if (categories.isEmpty) return;
+    final key = GlobalKey<FormState>();
+    var categoryId = expense?.categoryId ?? initialCategoryId ?? categories.first.id;
+    var spentAt = expense?.spentAt ?? dateOnly(DateTime.now());
+    final name = TextEditingController(text: expense?.name ?? '');
+    final quantity = TextEditingController(text: expense == null ? '1' : decimalText(expense.quantity));
+    final unitPrice = TextEditingController(text: expense == null ? '' : decimalText(expense.unitPrice));
+    final note = TextEditingController(text: expense?.note ?? '');
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: Text(expense == null ? 'Harcama ekle' : 'Harcamayı düzenle'),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+            content: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: 600, maxHeight: MediaQuery.sizeOf(dialogContext).height * .72),
+              child: Form(
+                key: key,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: categoryId,
+                        decoration: const InputDecoration(labelText: 'Kategori'),
+                        items: [for (final category in categories) DropdownMenuItem(value: category.id, child: Text(category.name))],
+                        onChanged: (value) => setDialogState(() => categoryId = value ?? categoryId),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(controller: name, maxLength: 100, decoration: const InputDecoration(labelText: 'Harcama / ürün adı'), validator: (value) => value == null || value.trim().isEmpty ? 'Harcama adı boş bırakılamaz.' : null),
+                      const SizedBox(height: 12),
+                      LayoutBuilder(builder: (_, constraints) {
+                        final fields = [
+                          TextFormField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))], decoration: const InputDecoration(labelText: 'Adet'), validator: (value) { try { parsePositiveDecimal(value ?? '', fieldName: 'Adet'); return null; } on FormatException catch (error) { return error.message; } }),
+                          TextFormField(controller: unitPrice, keyboardType: const TextInputType.numberWithOptions(decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))], decoration: const InputDecoration(labelText: 'Birim fiyat', suffixText: 'TL'), validator: (value) { try { if (parseMoney(value ?? '') < 0) return 'Birim fiyat negatif olamaz.'; return null; } on FormatException catch (error) { return error.message; } }),
+                        ];
+                        if (constraints.maxWidth < 470) return Column(children: [fields[0], const SizedBox(height: 12), fields[1]]);
+                        return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: fields[0]), const SizedBox(width: 12), Expanded(child: fields[1])]);
+                      }),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () async {
+                          final value = await showDatePicker(context: dialogContext, initialDate: spentAt, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                          if (value != null) setDialogState(() => spentAt = value);
+                        },
+                        child: InputDecorator(decoration: const InputDecoration(labelText: 'Harcama tarihi', suffixIcon: Icon(Icons.calendar_month)), child: Text(shortDate(spentAt), style: const TextStyle(fontWeight: FontWeight.w800))),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(controller: note, maxLength: 240, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Not (opsiyonel)')),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Vazgeç')),
+              FilledButton(
+                onPressed: () async {
+                  if (!(key.currentState?.validate() ?? false)) return;
+                  try {
+                    final q = parsePositiveDecimal(quantity.text, fieldName: 'Adet');
+                    final price = parseMoney(unitPrice.text);
+                    if (expense == null) {
+                      await widget.controller.addExpense(categoryId: categoryId, name: name.text, quantity: q, unitPrice: price, spentAt: spentAt, note: note.text);
+                    } else {

@@ -1,0 +1,71 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lefferion_prime_mizan/controllers/mizan_controller.dart';
+import 'package:lefferion_prime_mizan/models/mizan_models.dart';
+import 'package:lefferion_prime_mizan/services/local_store.dart';
+
+class MemoryStore implements MizanStore {
+  MemoryStore(this.current);
+  MizanState current;
+  @override Future<StoreLoadResult> load() async => StoreLoadResult(state: current, source: StoreLoadSource.primary);
+  @override Future<void> reset(MizanState state) async => current = state;
+  @override Future<void> save(MizanState state) async => current = state;
+}
+
+void main() {
+  test('CRUD ve ödeme işlemleri diğer modülleri silmez', () async {
+    final store = MemoryStore(MizanState.empty());
+    final controller = MizanController(store);
+    await controller.load();
+    await controller.addPerson('Ali');
+    final personId = controller.state.people.single.id;
+    await controller.addBankGroup(personId: personId, userWrittenName: 'Benim banka grubum');
+    final bankId = controller.state.people.single.banks.single.id;
+    await controller.addDebtProduct(personId: personId, bankId: bankId, kind: DebtKind.creditCard, title: 'Kart', totalAmount: 1000, monthlyAmount: 250, dueDate: DateTime(2026, 8, 1));
+    await controller.addBill(personId: personId, kind: BillKind.water, institutionName: 'Su kurumu', amount: 300, dueDate: DateTime(2026, 8, 2));
+    await controller.addExpenseCategory('Market');
+    final categoryId = controller.state.expenseCategories.single.id;
+    await controller.addExpense(categoryId: categoryId, name: 'Ekmek', quantity: 1, unitPrice: 50, spentAt: DateTime(2026, 7, 18));
+    final debt = controller.state.people.single.banks.single.products.single;
+    await controller.addPayment(personId: personId, type: RecordType.debt, sourceId: debt.id, amount: 400, paidAt: DateTime(2026, 7, 18));
+    final after = controller.state;
+    expect(after.people.single.banks.single.products.single.remainingAmount, 600);
+    expect(after.people.single.bills.single.remainingAmount, 300);
+    expect(after.expenses.single.totalAmount, 50);
+  });
+
+  test('kategori ONAYLIYORUM dışında silinmez', () async {
+    final controller = MizanController(MemoryStore(MizanState.empty()));
+    await controller.load();
+    await controller.addExpenseCategory('Test');
+    final id = controller.state.expenseCategories.single.id;
+    await expectLater(
+      controller.deleteExpenseCategory(
+        categoryId: id,
+        confirmation: 'onaylıyorum',
+      ),
+      throwsArgumentError,
+    );
+    expect(controller.state.expenseCategories, hasLength(1));
+    await controller.deleteExpenseCategory(categoryId: id, confirmation: 'ONAYLIYORUM');
+    expect(controller.state.expenseCategories, isEmpty);
+  });
+
+  test('fazla ödeme reddedilir', () async {
+    final state = MizanState(
+      people: [PersonAccount(id: 'p', name: 'Kişi', bills: [BillEntry(id: 'b', kind: BillKind.phone, institutionName: 'Kurum', amount: 100, dueDate: DateTime(2026, 8, 1))])],
+      expenseCategories: const [], expenses: const [], notificationSlots: defaultNotificationSlots,
+    );
+    final controller = MizanController(MemoryStore(state));
+    await controller.load();
+    await expectLater(
+      controller.addPayment(
+        personId: 'p',
+        type: RecordType.bill,
+        sourceId: 'b',
+        amount: 101,
+        paidAt: DateTime.now(),
+      ),
+      throwsArgumentError,
+    );
+  });
+}

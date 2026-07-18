@@ -1,0 +1,186 @@
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def require(condition: bool, message: str, failures: list[str]) -> None:
+    if not condition:
+        failures.append(message)
+
+
+def require_all(text: str, tokens: list[str], label: str, failures: list[str]) -> None:
+    missing = [token for token in tokens if token not in text]
+    require(not missing, f"{label}: {', '.join(missing)}", failures)
+
+
+def main() -> int:
+    failures: list[str] = []
+
+    pubspec = read("pubspec.yaml")
+    models = read("lib/models/mizan_models.dart")
+    controller = read("lib/controllers/mizan_controller.dart")
+    people = read("lib/screens/people_screen.dart")
+    forms = read("lib/screens/record_form_dialogs.dart")
+    expenses = read("lib/screens/expenses_screen.dart")
+    dashboard = read("lib/screens/dashboard_screen.dart")
+    reports = read("lib/screens/reports_screen.dart")
+    settings = read("lib/screens/settings_screen.dart")
+    store = read("lib/services/local_store.dart")
+    notifications = read("lib/services/notification_service.dart")
+    reminders = read("lib/services/reminder_engine.dart")
+    scaffold = read("lib/widgets/responsive_scaffold.dart")
+    workflow = read(".github/workflows/android-release.yml")
+    android_config = read("tools/configure_android.py")
+    requirements = read("docs/REQUIREMENTS_250_PLUS.md")
+    all_tests = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "test").glob("*_test.dart"))
+
+    require_all(
+        workflow,
+        [
+            "flutter create . --platforms=android",
+            "tools/configure_android.py",
+            "flutter analyze --fatal-infos",
+            "flutter test --reporter expanded",
+            "flutter build apk --release",
+            "actions/upload-artifact@v4",
+        ],
+        "CI/build adımları eksik",
+        failures,
+    )
+    require_all(
+        android_config,
+        [
+            "LEFFERION PRIME - MIZAN",
+            "POST_NOTIFICATIONS",
+            "RECEIVE_BOOT_COMPLETED",
+            "SCHEDULE_EXACT_ALARM",
+            "ScheduledNotificationBootReceiver",
+        ],
+        "Android yapılandırması eksik",
+        failures,
+    )
+    require("assets/brand/lefferion-prime-logo.png" in pubspec, "Logo asset yolu eksik", failures)
+    require("flutter_local_notifications" in pubspec, "Yerel bildirim paketi eksik", failures)
+    require("path_provider" in pubspec, "Dosya tabanlı yerel kayıt paketi eksik", failures)
+
+    require_all(
+        models,
+        [
+            "class PaymentRecord",
+            "class RecordNote",
+            "class DebtProduct",
+            "class BillEntry",
+            "class RentEntry",
+            "class ExpenseCategory",
+            "class ExpenseItem",
+            "class NotificationSlot",
+            "class MizanState",
+            "schemaVersion",
+            "recordReferencesAt",
+            "expensesForCategory",
+        ],
+        "Veri modeli eksik",
+        failures,
+    )
+    require_all(
+        controller,
+        [
+            "addPerson(", "updatePerson(", "deletePerson(",
+            "addBankGroup(", "updateBankGroup(", "deleteBankGroup(",
+            "addDebtProduct(", "updateDebtProduct(", "deleteDebtProduct(", "setDebtArchived(",
+            "addBill(", "updateBill(", "deleteBill(", "setBillArchived(",
+            "addRent(", "updateRent(", "deleteRent(", "setRentArchived(",
+            "addPayment(", "updatePayment(", "deletePayment(",
+            "addNote(", "deleteNote(",
+            "addExpenseCategory(", "renameExpenseCategory(", "deleteExpenseCategory(",
+            "addExpense(", "updateExpense(", "deleteExpense(",
+            "ONAYLIYORUM",
+            "requestNotificationPermissions(", "rescheduleNotifications(",
+            "_validateState(",
+        ],
+        "Controller akışları eksik",
+        failures,
+    )
+    require_all(
+        store,
+        [
+            "mizan_state.json",
+            "mizan_state.backup.json",
+            "mizan_state.tmp.json",
+            "writeAsString(encoded, flush: true)",
+            "_tryRead(temporary)",
+            "_tryRead(primary)",
+            "StoreLoadSource.backup",
+        ],
+        "Atomik kayıt/yedek kurtarma eksik",
+        failures,
+    )
+    require_all(
+        notifications,
+        [
+            "requestNotificationsPermission",
+            "requestExactAlarmsPermission",
+            "zonedSchedule",
+            "cancelAllPendingNotifications",
+            "AndroidScheduleMode",
+            "openBatteryOptimizationSettings",
+        ],
+        "Gerçek Android bildirim katmanı eksik",
+        failures,
+    )
+    require_all(
+        reminders,
+        [
+            "subtract(const Duration(days: 5))",
+            "add(const Duration(days: 5))",
+            "for (final hour in const [9, 18])",
+            "stableNotificationId",
+            "repeatsDaily: true",
+        ],
+        "Bildirim planı eksik",
+        failures,
+    )
+
+    require_all(forms, ["showPersonForm", "showBankForm", "showDebtForm", "showBillForm", "showRentForm", "showPaymentForm"], "Form akışları eksik", failures)
+    require_all(people, ["RecordNotesPanel", "showModalBottomSheet", "showPaymentForm", "deletePayment"], "Kişi/ödeme ekranı eksik", failures)
+    require_all(expenses, ["ONAYLIYORUM", "_ExpensePeriod.days30", "_ExpensePeriod.days60", "_ExpensePeriod.days90", "showDatePicker", "updateExpense", "deleteExpense"], "Gider ekranı/filtreleri eksik", failures)
+    require_all(dashboard, ["recordReferencesAt", "Kritik ödemeler", "Bugünkü gider"], "Gösterge paneli eksik", failures)
+    require_all(reports, ["selectedPeople", "selectedMonth", "DebtKind", "PaymentStatus", "Fatura türü bazlı", "Kira / taksit bazlı"], "Rapor filtreleri eksik", failures)
+    require_all(settings, ["requestNotificationPermissions", "updateNotificationSlot", "openBatteryOptimizationSettings", "pendingCount"], "Bildirim ayarları eksik", failures)
+    require_all(scaffold, ["NavigationRail", "NavigationBar", "SafeArea", "LayoutBuilder"], "Responsive gezinme eksik", failures)
+
+    require_all(
+        all_tests,
+        [
+            "100.50", "1.000,50", "remainingAmount", "throwsArgumentError",
+            "StoreLoadSource.backup", "ReminderPlanBuilder", "physicalSize",
+            "textScaleFactorTestValue", "ONAYLIYORUM",
+        ],
+        "Kritik otomatik test kapsamı eksik",
+        failures,
+    )
+
+    numbered = re.findall(r"^\d{3}\.", requirements, flags=re.MULTILINE)
+    require(len(numbered) >= 250, f"Ana gereksinim sayısı 250 altında: {len(numbered)}", failures)
+
+    if failures:
+        print("Mizan yapısal doğrulaması başarısız:")
+        for failure in failures:
+            print(f"- {failure}")
+        return 1
+
+    print(
+        f"Mizan yapısal doğrulaması geçti; {len(numbered)} ana gereksinim takip ediliyor. "
+        "Bu kontrol, davranış testlerinin yerine geçmez; flutter test ayrıca çalıştırılmalıdır."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

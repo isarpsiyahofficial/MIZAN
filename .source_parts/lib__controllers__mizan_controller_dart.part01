@@ -1,0 +1,480 @@
+    final person = _person(personId);
+    final replacement = PaymentRecord(
+      id: paymentId,
+      amount: amount,
+      paidAt: paidAt,
+      note: _optionalText(note, 'Ödeme notu', 240),
+      method: _optionalText(method, 'Ödeme yöntemi', 80),
+    );
+    await _commit(
+      _replacePerson(
+        _personWithUpdatedPayment(person, type, sourceId, paymentId, replacement),
+      ),
+    );
+  }
+
+  Future<void> deletePayment({
+    required String personId,
+    required RecordType type,
+    required String sourceId,
+    required String paymentId,
+  }) async {
+    final person = _person(personId);
+    await _commit(
+      _replacePerson(_personWithoutPayment(person, type, sourceId, paymentId)),
+    );
+  }
+
+  Future<void> addNote({
+    required String personId,
+    required RecordType type,
+    required String sourceId,
+    required String text,
+  }) async {
+    final person = _person(personId);
+    final note = RecordNote(
+      id: newId('note'),
+      text: _requiredText(text, 'Not', 240),
+      createdAt: DateTime.now(),
+    );
+    await _commit(_replacePerson(_personWithNote(person, type, sourceId, note)));
+  }
+
+  Future<void> deleteNote({
+    required String personId,
+    required RecordType type,
+    required String sourceId,
+    required String noteId,
+  }) async {
+    final person = _person(personId);
+    await _commit(
+      _replacePerson(_personWithoutNote(person, type, sourceId, noteId)),
+    );
+  }
+
+  Future<void> addExpenseCategory(String name) async {
+    final clean = _requiredText(name, 'Kategori adı', 60);
+    _ensureUniqueCategoryName(clean);
+    await _commit(
+      _state.copyWith(
+        expenseCategories: [
+          ..._state.expenseCategories,
+          ExpenseCategory(id: newId('category'), name: clean),
+        ],
+      ),
+      reschedule: false,
+    );
+  }
+
+  Future<void> renameExpenseCategory({
+    required String categoryId,
+    required String name,
+  }) async {
+    final clean = _requiredText(name, 'Kategori adı', 60);
+    _category(categoryId);
+    _ensureUniqueCategoryName(clean, excludingId: categoryId);
+    await _commit(
+      _state.copyWith(
+        expenseCategories: _state.expenseCategories
+            .map((item) => item.id == categoryId ? item.copyWith(name: clean) : item)
+            .toList(growable: false),
+      ),
+      reschedule: false,
+    );
+  }
+
+  Future<void> deleteExpenseCategory({
+    required String categoryId,
+    required String confirmation,
+  }) async {
+    _category(categoryId);
+    if (confirmation.trim() != 'ONAYLIYORUM') {
+      throw ArgumentError('Kategori silmek için tam olarak ONAYLIYORUM yazılmalı.');
+    }
+    await _commit(
+      _state.copyWith(
+        expenseCategories:
+            _state.expenseCategories.where((item) => item.id != categoryId).toList(),
+        expenses: _state.expenses
+            .where((item) => item.categoryId != categoryId)
+            .toList(),
+      ),
+      reschedule: false,
+    );
+  }
+
+  Future<void> addExpense({
+    required String categoryId,
+    required String name,
+    required double quantity,
+    required double unitPrice,
+    required DateTime spentAt,
+    String note = '',
+  }) async {
+    _category(categoryId);
+    final item = _buildExpense(
+      id: newId('expense'),
+      categoryId: categoryId,
+      name: name,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      spentAt: spentAt,
+      note: note,
+    );
+    await _commit(
+      _state.copyWith(expenses: [item, ..._state.expenses]),
+      reschedule: false,
+    );
+  }
+
+  Future<void> updateExpense({
+    required String expenseId,
+    required String categoryId,
+    required String name,
+    required double quantity,
+    required double unitPrice,
+    required DateTime spentAt,
+    String note = '',
+  }) async {
+    _expense(expenseId);
+    _category(categoryId);
+    final replacement = _buildExpense(
+      id: expenseId,
+      categoryId: categoryId,
+      name: name,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      spentAt: spentAt,
+      note: note,
+    );
+    await _commit(
+      _state.copyWith(
+        expenses: _state.expenses
+            .map((item) => item.id == expenseId ? replacement : item)
+            .toList(growable: false),
+      ),
+      reschedule: false,
+    );
+  }
+
+  Future<void> deleteExpense(String expenseId) async {
+    _expense(expenseId);
+    await _commit(
+      _state.copyWith(
+        expenses: _state.expenses.where((item) => item.id != expenseId).toList(),
+      ),
+      reschedule: false,
+    );
+  }
+
+  Future<void> setNotificationsEnabled(bool enabled) async {
+    await _commit(_state.copyWith(notificationsEnabled: enabled));
+  }
+
+  Future<void> updateNotificationSlot({
+    required String slotId,
+    int? hour,
+    int? minute,
+    String? message,
+    bool? enabled,
+  }) async {
+    final index = _state.notificationSlots.indexWhere((item) => item.id == slotId);
+    if (index < 0) throw ArgumentError('Bildirim ayarı bulunamadı.');
+    final current = _state.notificationSlots[index];
+    final cleanMessage = message == null
+        ? current.message
+        : _requiredText(message, 'Bildirim mesajı', 160);
+    final nextHour = hour ?? current.hour;
+    final nextMinute = minute ?? current.minute;
+    if (nextHour < 0 || nextHour > 23 || nextMinute < 0 || nextMinute > 59) {
+      throw ArgumentError('Bildirim saati geçersiz.');
+    }
+    await _commit(
+      _state.copyWith(
+        notificationSlots: _state.notificationSlots
+            .map((item) => item.id == slotId
+                ? item.copyWith(
+                    hour: nextHour,
+                    minute: nextMinute,
+                    message: cleanMessage,
+                    enabled: enabled,
+                  )
+                : item)
+            .toList(growable: false),
+      ),
+    );
+  }
+
+  Future<void> requestNotificationPermissions() async {
+    _isBusy = true;
+    notifyListeners();
+    try {
+      _notificationHealth = await _scheduler.requestPermissions();
+      await _scheduler.reschedule(_state);
+      _notificationHealth = await _scheduler.health();
+      _lastError = null;
+    } on Object catch (error) {
+      _lastError = _friendlyError(error);
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshNotificationHealth() async {
+    try {
+      _notificationHealth = await _scheduler.health();
+      notifyListeners();
+    } on Object catch (error) {
+      _lastError = _friendlyError(error);
+      notifyListeners();
+    }
+  }
+
+  Future<void> rescheduleNotifications() async {
+    try {
+      await _scheduler.reschedule(_state);
+      _notificationHealth = await _scheduler.health();
+      _lastError = null;
+    } on Object catch (error) {
+      _lastError = _friendlyError(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> openBatteryOptimizationSettings() =>
+      _scheduler.openBatteryOptimizationSettings();
+
+  Future<void> resetDemoData() async {
+    final seed = MizanState.seed();
+    _isBusy = true;
+    notifyListeners();
+    try {
+      await _store.reset(seed);
+      _state = seed;
+      await _scheduler.reschedule(seed);
+      _notificationHealth = await _scheduler.health();
+      _lastError = null;
+    } on Object catch (error) {
+      _lastError = _friendlyError(error);
+      rethrow;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  MizanState _replacePerson(PersonAccount replacement) {
+    return _state.copyWith(
+      people: _state.people
+          .map((person) => person.id == replacement.id ? replacement : person)
+          .toList(growable: false),
+    );
+  }
+
+  MizanState _replaceBank(PersonAccount person, BankGroup replacement) {
+    return _replacePerson(
+      person.copyWith(
+        banks: person.banks
+            .map((bank) => bank.id == replacement.id ? replacement : bank)
+            .toList(growable: false),
+      ),
+    );
+  }
+
+  PersonAccount _personWithPayment(
+    PersonAccount person,
+    RecordType type,
+    String sourceId,
+    PaymentRecord payment,
+  ) {
+    switch (type) {
+      case RecordType.debt:
+        for (final bank in person.banks) {
+          final index = bank.products.indexWhere((item) => item.id == sourceId);
+          if (index < 0) continue;
+          final record = bank.products[index];
+          if (payment.amount > record.remainingAmount) {
+            throw ArgumentError('Ödeme kalan borçtan büyük olamaz.');
+          }
+          return person.copyWith(
+            banks: person.banks
+                .map((item) => item.id == bank.id
+                    ? item.copyWith(
+                        products: item.products
+                            .map((product) => product.id == sourceId
+                                ? product.copyWith(
+                                    payments: [payment, ...product.payments],
+                                  )
+                                : product)
+                            .toList(),
+                      )
+                    : item)
+                .toList(),
+          );
+        }
+        throw ArgumentError('Borç kaydı bulunamadı.');
+      case RecordType.bill:
+        final record = _bill(person, sourceId);
+        if (payment.amount > record.remainingAmount) {
+          throw ArgumentError('Ödeme kalan fatura tutarından büyük olamaz.');
+        }
+        return person.copyWith(
+          bills: person.bills
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(payments: [payment, ...item.payments])
+                  : item)
+              .toList(),
+        );
+      case RecordType.rent:
+        final record = _rent(person, sourceId);
+        if (payment.amount > record.remainingAmount) {
+          throw ArgumentError('Ödeme kalan kira/taksit tutarından büyük olamaz.');
+        }
+        return person.copyWith(
+          rents: person.rents
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(payments: [payment, ...item.payments])
+                  : item)
+              .toList(),
+        );
+    }
+    throw ArgumentError('Ödeme kaynağı bulunamadı.');
+  }
+
+  PersonAccount _personWithUpdatedPayment(
+    PersonAccount person,
+    RecordType type,
+    String sourceId,
+    String paymentId,
+    PaymentRecord replacement,
+  ) {
+    List<PaymentRecord> replace(List<PaymentRecord> payments, double total) {
+      final existing = payments.where((item) => item.id == paymentId).toList();
+      if (existing.isEmpty) throw ArgumentError('Ödeme kaydı bulunamadı.');
+      final paidWithout = payments
+          .where((item) => item.id != paymentId)
+          .fold<double>(0, (sum, item) => sum + item.amount);
+      if (paidWithout + replacement.amount > total + 0.001) {
+        throw ArgumentError('Güncellenen ödeme toplam tutarı aşamaz.');
+      }
+      return payments
+          .map((item) => item.id == paymentId ? replacement : item)
+          .toList(growable: false);
+    }
+
+    switch (type) {
+      case RecordType.debt:
+        for (final bank in person.banks) {
+          if (!bank.products.any((item) => item.id == sourceId)) continue;
+          return person.copyWith(
+            banks: person.banks
+                .map((item) => item.id == bank.id
+                    ? item.copyWith(
+                        products: item.products
+                            .map((product) => product.id == sourceId
+                                ? product.copyWith(
+                                    payments: replace(
+                                      product.payments,
+                                      product.totalAmount,
+                                    ),
+                                  )
+                                : product)
+                            .toList(),
+                      )
+                    : item)
+                .toList(),
+          );
+        }
+        throw ArgumentError('Borç kaydı bulunamadı.');
+      case RecordType.bill:
+        final bill = _bill(person, sourceId);
+        return person.copyWith(
+          bills: person.bills
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(payments: replace(item.payments, bill.amount))
+                  : item)
+              .toList(),
+        );
+      case RecordType.rent:
+        final rent = _rent(person, sourceId);
+        return person.copyWith(
+          rents: person.rents
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(payments: replace(item.payments, rent.amount))
+                  : item)
+              .toList(),
+        );
+    }
+    throw ArgumentError('Ödeme kaynağı bulunamadı.');
+  }
+
+  PersonAccount _personWithoutPayment(
+    PersonAccount person,
+    RecordType type,
+    String sourceId,
+    String paymentId,
+  ) {
+    switch (type) {
+      case RecordType.debt:
+        for (final bank in person.banks) {
+          if (!bank.products.any((item) => item.id == sourceId)) continue;
+          return person.copyWith(
+            banks: person.banks
+                .map((item) => item.id == bank.id
+                    ? item.copyWith(
+                        products: item.products
+                            .map((product) => product.id == sourceId
+                                ? product.copyWith(
+                                    payments: product.payments
+                                        .where((payment) => payment.id != paymentId)
+                                        .toList(),
+                                  )
+                                : product)
+                            .toList(),
+                      )
+                    : item)
+                .toList(),
+          );
+        }
+        throw ArgumentError('Borç kaydı bulunamadı.');
+      case RecordType.bill:
+        _bill(person, sourceId);
+        return person.copyWith(
+          bills: person.bills
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(
+                      payments: item.payments
+                          .where((payment) => payment.id != paymentId)
+                          .toList(),
+                    )
+                  : item)
+              .toList(),
+        );
+      case RecordType.rent:
+        _rent(person, sourceId);
+        return person.copyWith(
+          rents: person.rents
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(
+                      payments: item.payments
+                          .where((payment) => payment.id != paymentId)
+                          .toList(),
+                    )
+                  : item)
+              .toList(),
+        );
+    }
+    throw ArgumentError('Ödeme kaynağı bulunamadı.');
+  }
+
+  PersonAccount _personWithNote(
+    PersonAccount person,
+    RecordType type,
+    String sourceId,
+    RecordNote note,
+  ) {
+    switch (type) {
+      case RecordType.debt:
+        for (final bank in person.banks) {
+          if (!bank.products.any((item) => item.id == sourceId)) continue;

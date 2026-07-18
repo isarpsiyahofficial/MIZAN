@@ -1,0 +1,282 @@
+import 'package:flutter/material.dart';
+
+import '../core/theme.dart';
+import '../models/mizan_models.dart';
+
+class PageHeader extends StatelessWidget {
+  const PageHeader({
+    required this.title,
+    required this.subtitle,
+    this.action,
+    super.key,
+  });
+  final String title;
+  final String subtitle;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = MediaQuery.textScalerOf(context).scale(1);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stack = constraints.maxWidth < 520 || scale > 1.35;
+        final heading = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 42, maxWidth: 54),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Image.asset(
+                  'assets/brand/lefferion-prime-logo.png',
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: MizanTheme.ink,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: MizanTheme.muted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+        if (action == null) return heading;
+        if (stack) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [heading, const SizedBox(height: 12), action!],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [Expanded(child: heading), const SizedBox(width: 16), action!],
+        );
+      },
+    );
+  }
+}
+
+class AdaptiveGrid extends StatelessWidget {
+  const AdaptiveGrid({
+    required this.children,
+    this.minTileWidth = 220,
+    this.spacing = 12,
+    super.key,
+  });
+  final List<Widget> children;
+  final double minTileWidth;
+  final double spacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final count = ((constraints.maxWidth + spacing) / (minTileWidth + spacing))
+            .floor()
+            .clamp(1, 4)
+            .toInt();
+        final width = (constraints.maxWidth - spacing * (count - 1)) / count;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [for (final child in children) SizedBox(width: width, child: child)],
+        );
+      },
+    );
+  }
+}
+
+class MetricCard extends StatelessWidget {
+  const MetricCard({
+    required this.label,
+    required this.value,
+    this.color = MizanTheme.ink,
+    this.icon,
+    super.key,
+  });
+  final String label;
+  final String value;
+  final Color color;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, color: color),
+              const SizedBox(height: 10),
+            ],
+            Text(label, style: const TextStyle(color: MizanTheme.muted, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              softWrap: true,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MizanListCard extends StatelessWidget {
+  const MizanListCard({
+    required this.title,
+    required this.subtitle,
+    this.leadingColor = MizanTheme.ink,
+    this.trailing,
+    this.onTap,
+    this.icon,
+    super.key,
+  });
+  final String title;
+  final String subtitle;
+  final Color leadingColor;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: leadingColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon ?? Icons.circle, size: 18, color: leadingColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(color: MizanTheme.ink, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: const TextStyle(color: MizanTheme.muted, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[const SizedBox(width: 10), Flexible(child: trailing!)],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class StatusChip extends StatelessWidget {
+  const StatusChip({required this.status, super.key});
+  final PaymentStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      PaymentStatus.active => MizanTheme.blue,
+      PaymentStatus.upcoming => MizanTheme.orange,
+      PaymentStatus.overdue => MizanTheme.red,
+      PaymentStatus.completed => MizanTheme.green,
+      PaymentStatus.passive => MizanTheme.muted,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(status.label, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 12)),
+    );
+  }
+}
+
+class SectionTitle extends StatelessWidget {
+  const SectionTitle(this.title, {this.subtitle, this.action, super.key});
+  final String title;
+  final String? subtitle;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+              if (subtitle != null) Text(subtitle!, style: const TextStyle(color: MizanTheme.muted)),
+            ],
+          ),
+        ),
+        if (action != null) action!,
+      ],
+    );
+  }
+}
+
+class EmptyState extends StatelessWidget {
+  const EmptyState({required this.title, required this.message, this.action, super.key});
+  final String title;
+  final String message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          children: [
+            const Icon(Icons.inbox_outlined, color: MizanTheme.muted, size: 34),
+            const SizedBox(height: 10),
+            Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w900)),
+            const SizedBox(height: 5),
+            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: MizanTheme.muted)),
+            if (action != null) ...[const SizedBox(height: 14), action!],
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,201 @@
+import 'dart:io';
+
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:timezone/data/latest_all.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
+
+import '../models/mizan_models.dart';
+import 'reminder_engine.dart';
+
+class NotificationHealth {
+  const NotificationHealth({
+    this.permissionGranted = false,
+    this.exactAlarmGranted = false,
+    this.pendingCount = 0,
+    this.initialized = false,
+    this.message,
+  });
+
+  final bool permissionGranted;
+  final bool exactAlarmGranted;
+  final int pendingCount;
+  final bool initialized;
+  final String? message;
+
+  NotificationHealth copyWith({
+    bool? permissionGranted,
+    bool? exactAlarmGranted,
+    int? pendingCount,
+    bool? initialized,
+    String? message,
+  }) {
+    return NotificationHealth(
+      permissionGranted: permissionGranted ?? this.permissionGranted,
+      exactAlarmGranted: exactAlarmGranted ?? this.exactAlarmGranted,
+      pendingCount: pendingCount ?? this.pendingCount,
+      initialized: initialized ?? this.initialized,
+      message: message ?? this.message,
+    );
+  }
+}
+
+abstract class ReminderScheduler {
+  Future<void> initialize();
+  Future<NotificationHealth> health();
+  Future<NotificationHealth> requestPermissions();
+  Future<void> reschedule(MizanState state);
+  Future<void> openBatteryOptimizationSettings();
+}
+
+class NoopReminderScheduler implements ReminderScheduler {
+  const NoopReminderScheduler();
+
+  @override
+  Future<NotificationHealth> health() async => const NotificationHealth(
+        initialized: true,
+        message: 'Bildirim servisi bu platformda etkin değil.',
+      );
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> openBatteryOptimizationSettings() async {}
+
+  @override
+  Future<NotificationHealth> requestPermissions() => health();
+
+  @override
+  Future<void> reschedule(MizanState state) async {}
+}
+
+class LocalNotificationService implements ReminderScheduler {
+  LocalNotificationService({
+    FlutterLocalNotificationsPlugin? plugin,
+    ReminderPlanBuilder? planBuilder,
+  })  : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+        _planBuilder = planBuilder ?? const ReminderPlanBuilder();
+
+  static const _expenseDetails = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'mizan_expense_reminders',
+      'Gider hatırlatmaları',
+      channelDescription: 'Günlük gider kaydı hatırlatmaları',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      playSound: true,
+    ),
+  );
+
+  static const _paymentDetails = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'mizan_payment_reminders',
+      'Ödeme hatırlatmaları',
+      channelDescription: 'Borç, fatura ve kira son ödeme hatırlatmaları',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+    ),
+  );
+
+  final FlutterLocalNotificationsPlugin _plugin;
+  final ReminderPlanBuilder _planBuilder;
+  bool _initialized = false;
+  bool _exactAlarmGranted = false;
+
+  @override
+  Future<void> initialize() async {
+    if (_initialized || !Platform.isAndroid) return;
+    tz_data.initializeTimeZones();
+    try {
+      final timezone = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timezone.name));
+    } on Object {
+      tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
+    }
+    const initializationSettings = InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    );
+    await _plugin.initialize(settings: initializationSettings);
+    _initialized = true;
+  }
+
+  @override
+  Future<NotificationHealth> health() async {
+    if (!Platform.isAndroid) {
+      return const NotificationHealth(
+        initialized: true,
+        message: 'Android dışında gerçek zamanlama yapılmaz.',
+      );
+    }
+    await initialize();
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    final permission = await android?.areNotificationsEnabled() ?? false;
+    final pending = await _plugin.pendingNotificationRequests();
+    return NotificationHealth(
+      permissionGranted: permission,
+      exactAlarmGranted: _exactAlarmGranted,
+      pendingCount: pending.length,
+      initialized: true,
+    );
+  }
+
+  @override
+  Future<NotificationHealth> requestPermissions() async {
+    if (!Platform.isAndroid) return health();
+    await initialize();
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    final notificationPermission =
+        await android?.requestNotificationsPermission() ?? false;
+    _exactAlarmGranted = await android?.requestExactAlarmsPermission() ?? false;
+    final pending = await _plugin.pendingNotificationRequests();
+    return NotificationHealth(
+      permissionGranted: notificationPermission,
+      exactAlarmGranted: _exactAlarmGranted,
+      pendingCount: pending.length,
+      initialized: true,
+    );
+  }
+
+  @override
+  Future<void> reschedule(MizanState state) async {
+    if (!Platform.isAndroid) return;
+    await initialize();
+    await _plugin.cancelAllPendingNotifications();
+    if (!state.notificationsEnabled) return;
+
+    final plan = _planBuilder.build(state: state, now: DateTime.now());
+    final mode = _exactAlarmGranted
+        ? AndroidScheduleMode.exactAllowWhileIdle
+        : AndroidScheduleMode.inexactAllowWhileIdle;
+    for (final reminder in plan) {
+      final scheduled = tz.TZDateTime.from(reminder.scheduledAt, tz.local);
+      await _plugin.zonedSchedule(
+        id: reminder.id,
+        title: reminder.title,
+        body: reminder.message,
+        scheduledDate: scheduled,
+        notificationDetails: reminder.kind == ReminderKind.expense
+            ? _expenseDetails
+            : _paymentDetails,
+        scheduleMode: mode,
+        payload: '${reminder.kind.name}:${reminder.sourceId}',
+        matchDateTimeComponents:
+            reminder.repeatsDaily ? DateTimeComponents.time : null,
+      );
+    }
+  }
+
+  @override
+  Future<void> openBatteryOptimizationSettings() async {
+    if (!Platform.isAndroid) return;
+    const intent = AndroidIntent(
+      action: 'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+    );
+    await intent.launch();
+  }
+}

@@ -1,0 +1,23 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lefferion_prime_mizan/models/mizan_models.dart';
+import 'package:lefferion_prime_mizan/services/local_store.dart';
+
+void main() {
+  test('atomik kayıt okunur ve bozuk ana dosyada yedek kurtarılır', () async {
+    final directory = await Directory.systemTemp.createTemp('mizan-store-test');
+    addTearDown(() => directory.delete(recursive: true));
+    final store = LocalStore(directory: directory);
+    final first = MizanState.seed();
+    await store.save(first);
+    final second = first.copyWith(notificationsEnabled: false);
+    await store.save(second);
+    final loaded = await store.load();
+    expect(loaded.state.notificationsEnabled, isFalse);
+    await File('${directory.path}/mizan_state.json').writeAsString('{bozuk');
+    final recovered = await store.load();
+    expect(recovered.source, StoreLoadSource.backup);
+    expect(recovered.state.notificationsEnabled, isTrue);
+  });
+}

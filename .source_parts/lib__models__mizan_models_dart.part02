@@ -1,0 +1,158 @@
+        'people': people.map((item) => item.toJson()).toList(),
+        'expenseCategories': expenseCategories.map((item) => item.toJson()).toList(),
+        'expenses': expenses.map((item) => item.toJson()).toList(),
+        'notificationSlots': notificationSlots.map((item) => item.toJson()).toList(),
+        'notificationsEnabled': notificationsEnabled,
+      };
+
+  factory MizanState.fromJson(Map<String, dynamic> json) {
+    final slots = ((json['notificationSlots'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((item) => NotificationSlot.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+    return MizanState(
+      schemaVersion: _intOrNull(json['schemaVersion']) ?? 1,
+      people: ((json['people'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => PersonAccount.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+      expenseCategories: ((json['expenseCategories'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => ExpenseCategory.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+      expenses: ((json['expenses'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => ExpenseItem.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+      notificationSlots: slots.isEmpty ? defaultNotificationSlots : slots,
+      notificationsEnabled: json['notificationsEnabled'] as bool? ?? true,
+    ).copyWith(schemaVersion: currentSchemaVersion);
+  }
+
+  factory MizanState.empty() => const MizanState(
+        people: [],
+        expenseCategories: [],
+        expenses: [],
+        notificationSlots: defaultNotificationSlots,
+      );
+
+  factory MizanState.seed() {
+    final now = DateTime.now();
+    final market = const ExpenseCategory(id: 'cat-market', name: 'Market');
+    final transport = const ExpenseCategory(
+      id: 'cat-transport',
+      name: 'Ulaşım',
+      colorValue: 0xFF325DDE,
+    );
+    return MizanState(
+      people: [
+        PersonAccount(
+          id: 'person-demo',
+          name: 'Örnek kişi',
+          banks: [
+            BankGroup(
+              id: 'bank-demo',
+              userWrittenName: 'Kullanıcının yazdığı banka adı',
+              products: [
+                DebtProduct(
+                  id: 'debt-card-demo',
+                  kind: DebtKind.creditCard,
+                  title: 'Kredi kartı borcu',
+                  totalAmount: 24900,
+                  monthlyAmount: 2450,
+                  dueDate: now.add(const Duration(days: 3)),
+                  payments: [
+                    PaymentRecord(
+                      id: 'payment-demo',
+                      amount: 12450,
+                      paidAt: now.subtract(const Duration(days: 28)),
+                      method: 'Banka transferi',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+          bills: [
+            BillEntry(
+              id: 'bill-demo',
+              kind: BillKind.electricity,
+              institutionName: 'Kullanıcının yazdığı kurum',
+              subscriberNumber: '123456',
+              amount: 890,
+              dueDate: now.add(const Duration(days: 2)),
+            ),
+          ],
+          rents: [
+            RentEntry(
+              id: 'rent-demo',
+              title: 'Ev kirası',
+              amount: 15000,
+              paymentDay: 5,
+              receiverName: 'Alıcı adı',
+              iban: 'TR00 0000 0000 0000 0000 0000 00',
+              dueDate: now.add(const Duration(days: 5)),
+              contractStart: DateTime(now.year, 1, 1),
+              contractEnd: DateTime(now.year, 12, 31),
+              increaseDate: DateTime(now.year, 9, 1),
+            ),
+          ],
+        ),
+      ],
+      expenseCategories: [market, transport],
+      expenses: [
+        ExpenseItem(
+          id: 'expense-demo-1',
+          categoryId: market.id,
+          name: 'Ekmek',
+          quantity: 1,
+          unitPrice: 45.50,
+          spentAt: now,
+        ),
+        ExpenseItem(
+          id: 'expense-demo-2',
+          categoryId: transport.id,
+          name: 'Yakıt',
+          quantity: 1,
+          unitPrice: 850,
+          spentAt: now.subtract(const Duration(days: 1)),
+        ),
+      ],
+      notificationSlots: defaultNotificationSlots,
+    );
+  }
+}
+
+const List<NotificationSlot> defaultNotificationSlots = [
+  NotificationSlot(
+    id: 'morning',
+    label: 'Sabah gider',
+    hour: 7,
+    minute: 0,
+    message: 'Bugünkü giderlerini işlemeyi unutma.',
+  ),
+  NotificationSlot(
+    id: 'noon',
+    label: 'Öğlen gider',
+    hour: 12,
+    minute: 0,
+    message: 'Öğlene kadar yaptığın harcamaları ekleyebilirsin.',
+  ),
+  NotificationSlot(
+    id: 'evening',
+    label: 'Akşam gider',
+    hour: 21,
+    minute: 0,
+    message: 'Günü kapatmadan giderlerini kontrol et.',
+  ),
+];
+
+List<PaymentRecord> _paymentList(dynamic value) => ((value as List?) ?? const [])
+    .whereType<Map>()
+    .map((item) => PaymentRecord.fromJson(Map<String, dynamic>.from(item)))
+    .toList(growable: false);
+
+List<RecordNote> _noteList(dynamic value) => ((value as List?) ?? const [])
+    .whereType<Map>()
+    .map((item) => RecordNote.fromJson(Map<String, dynamic>.from(item)))
+    .toList(growable: false);

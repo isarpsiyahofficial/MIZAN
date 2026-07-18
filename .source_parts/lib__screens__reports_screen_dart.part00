@@ -1,0 +1,233 @@
+import 'package:flutter/material.dart';
+
+import '../controllers/mizan_controller.dart';
+import '../core/formatters.dart';
+import '../core/theme.dart';
+import '../models/mizan_models.dart';
+import '../widgets/mizan_cards.dart';
+
+class ReportsScreen extends StatefulWidget {
+  const ReportsScreen({required this.controller, super.key});
+  final MizanController controller;
+  @override
+  State<ReportsScreen> createState() => _ReportsScreenState();
+}
+
+class _ReportsScreenState extends State<ReportsScreen> {
+  final selectedPeople = <String>{};
+  DateTime selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  DebtKind? debtKind;
+  PaymentStatus? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.controller.state;
+    final people = selectedPeople.isEmpty
+        ? state.people
+        : state.people.where((person) => selectedPeople.contains(person.id)).toList();
+    final bankTotals = <String, double>{};
+    final debtKindTotals = <String, double>{};
+    final billTotals = <String, double>{};
+    final rentTotals = <String, double>{};
+    final personTotals = <String, double>{};
+
+    for (final person in people) {
+      double personTotal = 0;
+      for (final bank in person.banks) {
+        for (final debt in bank.products) {
+          if (debtKind != null && debt.kind != debtKind) continue;
+          if (status != null && debt.statusAt(selectedMonth) != status) continue;
+          final amount = debt.remainingAmount;
+          personTotal += amount;
+          bankTotals[bank.userWrittenName] = (bankTotals[bank.userWrittenName] ?? 0) + amount;
+          debtKindTotals[debt.displayKind] = (debtKindTotals[debt.displayKind] ?? 0) + amount;
+        }
+      }
+      for (final bill in person.bills) {
+        if (status != null && bill.statusAt(selectedMonth) != status) continue;
+        personTotal += bill.remainingAmount;
+        billTotals[bill.kind.label] = (billTotals[bill.kind.label] ?? 0) + bill.remainingAmount;
+      }
+      for (final rent in person.rents) {
+        if (status != null && rent.statusAt(selectedMonth) != status) continue;
+        personTotal += rent.remainingAmount;
+        rentTotals[rent.title] = (rentTotals[rent.title] ?? 0) + rent.remainingAmount;
+      }
+      personTotals[person.name] = personTotal;
+    }
+
+    final expenseCategoryTotals = <String, double>{};
+    for (final category in state.expenseCategories) {
+      final amount = state.expenses
+          .where((expense) => isSameMonth(expense.spentAt, selectedMonth) && expense.categoryId == category.id)
+          .fold<double>(0, (sum, expense) => sum + expense.totalAmount);
+      expenseCategoryTotals[category.name] = amount;
+    }
+    final filteredTotal = personTotals.values.fold<double>(0, (sum, value) => sum + value);
+    final monthlyLoad = people.fold<double>(0, (sum, person) => sum + person.monthlyLoadFor(selectedMonth));
+    final monthlyExpense = state.expenseTotalForMonth(selectedMonth);
+    final padding = MediaQuery.sizeOf(context).width < 380 ? 12.0 : 18.0;
+
+    return ListView(
+      key: const PageStorageKey('reports'),
+      padding: EdgeInsets.fromLTRB(padding, 18, padding, 100),
+      children: [
+        const PageHeader(
+          title: 'Raporlar',
+          subtitle: 'Kişi, ay, borç türü ve durum filtreleriyle hesaplanan ayrıntılı toplamlar',
+        ),
+        const SizedBox(height: 18),
+        _ReportFilters(
+          state: state,
+          selectedPeople: selectedPeople,
+          selectedMonth: selectedMonth,
+          debtKind: debtKind,
+          status: status,
+          onPeopleChanged: (values) => setState(() { selectedPeople..clear()..addAll(values); }),
+          onMonthChanged: (value) => setState(() => selectedMonth = value),
+          onDebtKindChanged: (value) => setState(() => debtKind = value),
+          onStatusChanged: (value) => setState(() => status = value),
+        ),
+        const SizedBox(height: 18),
+        AdaptiveGrid(children: [
+          MetricCard(label: 'Filtreli kalan borç', value: money(filteredTotal), color: MizanTheme.red),
+          MetricCard(label: '${monthLabel(selectedMonth)} ödeme yükü', value: money(monthlyLoad), color: MizanTheme.blue),
+          MetricCard(label: '${monthLabel(selectedMonth)} gideri', value: money(monthlyExpense), color: MizanTheme.green),
+        ]),
+        const SizedBox(height: 22),
+        _ReportBlock(title: 'Kişi bazlı', items: personTotals, color: MizanTheme.ink),
+        _ReportBlock(title: 'Banka adı bazlı', items: bankTotals, color: MizanTheme.orange),
+        _ReportBlock(title: 'Borç türü bazlı', items: debtKindTotals, color: MizanTheme.blue),
+        _ReportBlock(title: 'Fatura türü bazlı', items: billTotals, color: MizanTheme.purple),
+        _ReportBlock(title: 'Kira / taksit bazlı', items: rentTotals, color: MizanTheme.red),
+        _ReportBlock(title: 'Gider kategorisi · ${monthLabel(selectedMonth)}', items: expenseCategoryTotals, color: MizanTheme.green),
+      ],
+    );
+  }
+}
+
+class _ReportFilters extends StatelessWidget {
+  const _ReportFilters({required this.state, required this.selectedPeople, required this.selectedMonth, required this.debtKind, required this.status, required this.onPeopleChanged, required this.onMonthChanged, required this.onDebtKindChanged, required this.onStatusChanged});
+  final MizanState state;
+  final Set<String> selectedPeople;
+  final DateTime selectedMonth;
+  final DebtKind? debtKind;
+  final PaymentStatus? status;
+  final ValueChanged<Set<String>> onPeopleChanged;
+  final ValueChanged<DateTime> onMonthChanged;
+  final ValueChanged<DebtKind?> onDebtKindChanged;
+  final ValueChanged<PaymentStatus?> onStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Filtreler', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilterChip(
+                  selected: selectedPeople.isEmpty,
+                  label: const Text('Tüm kişiler'),
+                  onSelected: (_) => onPeopleChanged(<String>{}),
+                ),
+                for (final person in state.people)
+                  FilterChip(
+                    selected: selectedPeople.contains(person.id),
+                    label: Text(person.name),
+                    onSelected: (selected) {
+                      final next = {...selectedPeople};
+                      selected ? next.add(person.id) : next.remove(person.id);
+                      onPeopleChanged(next);
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            LayoutBuilder(builder: (context, constraints) {
+              final fields = <Widget>[
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final date = await showDatePicker(context: context, initialDate: selectedMonth, firstDate: DateTime(2000), lastDate: DateTime(2100), helpText: 'Rapor ayı için bir gün seçin');
+                    if (date != null) onMonthChanged(DateTime(date.year, date.month));
+                  },
+                  icon: const Icon(Icons.calendar_month),
+                  label: Text(monthLabel(selectedMonth)),
+                ),
+                DropdownButtonFormField<DebtKind?>(
+                  initialValue: debtKind,
+                  decoration: const InputDecoration(labelText: 'Borç türü'),
+                  items: [const DropdownMenuItem(value: null, child: Text('Tüm borç türleri')), for (final item in DebtKind.values) DropdownMenuItem(value: item, child: Text(item.label))],
+                  onChanged: onDebtKindChanged,
+                ),
+                DropdownButtonFormField<PaymentStatus?>(
+                  initialValue: status,
+                  decoration: const InputDecoration(labelText: 'Durum'),
+                  items: [const DropdownMenuItem(value: null, child: Text('Tüm durumlar')), for (final item in PaymentStatus.values) DropdownMenuItem(value: item, child: Text(item.label))],
+                  onChanged: onStatusChanged,
+                ),
+              ];
+              if (constraints.maxWidth < 760 || MediaQuery.textScalerOf(context).scale(1) > 1.2) {
+                return Column(children: [for (var i = 0; i < fields.length; i++) ...[fields[i], if (i < fields.length - 1) const SizedBox(height: 10)]]);
+              }
+              return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [for (var i = 0; i < fields.length; i++) ...[Expanded(child: fields[i]), if (i < fields.length - 1) const SizedBox(width: 10)]]);
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportBlock extends StatelessWidget {
+  const _ReportBlock({required this.title, required this.items, required this.color});
+  final String title;
+  final Map<String, double> items;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = items.entries.where((entry) => entry.value > 0).toList()..sort((a, b) => b.value.compareTo(a.value));
+    final maximum = sorted.isEmpty ? 1.0 : sorted.first.value;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 12),
+              if (sorted.isEmpty)
+                const Text('Bu filtrede gösterilecek tutar bulunmuyor.', style: TextStyle(color: MizanTheme.muted))
+              else
+                for (final entry in sorted) ...[
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(child: Text(entry.key, softWrap: true, style: const TextStyle(fontWeight: FontWeight.w800))),
+                    const SizedBox(width: 12),
+                    Flexible(child: Text(money(entry.value), textAlign: TextAlign.end, style: TextStyle(color: color, fontWeight: FontWeight.w900))),
+                  ]),
+                  const SizedBox(height: 6),
+                  Semantics(
+                    label: '${entry.key} ${money(entry.value)}',
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(value: entry.value / maximum, minHeight: 8, color: color, backgroundColor: color.withValues(alpha: .10)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

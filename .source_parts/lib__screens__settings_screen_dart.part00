@@ -1,0 +1,170 @@
+import 'package:flutter/material.dart';
+
+import '../controllers/mizan_controller.dart';
+import '../core/formatters.dart';
+import '../core/theme.dart';
+import '../models/mizan_models.dart';
+import '../widgets/mizan_cards.dart';
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({required this.controller, super.key});
+  final MizanController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.state;
+    final health = controller.notificationHealth;
+    final padding = MediaQuery.sizeOf(context).width < 380 ? 12.0 : 18.0;
+    return ListView(
+      key: const PageStorageKey('settings'),
+      padding: EdgeInsets.fromLTRB(padding, 18, padding, 100),
+      children: [
+        const PageHeader(
+          title: 'Ayarlar',
+          subtitle: 'Gerçek Android bildirimleri, yerel kayıt sağlığı ve güvenli sıfırlama',
+        ),
+        const SizedBox(height: 18),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Tüm bildirimler', style: TextStyle(fontWeight: FontWeight.w900)),
+                  subtitle: const Text('Gider ve kayıt bazlı ödeme hatırlatmalarını birlikte açar veya kapatır.'),
+                  value: state.notificationsEnabled,
+                  onChanged: controller.isBusy ? null : controller.setNotificationsEnabled,
+                ),
+                const Divider(),
+                AdaptiveGrid(minTileWidth: 190, children: [
+                  MetricCard(label: 'Bildirim izni', value: health.permissionGranted ? 'Verildi' : 'Gerekli', color: health.permissionGranted ? MizanTheme.green : MizanTheme.orange),
+                  MetricCard(label: 'Kesin alarm izni', value: health.exactAlarmGranted ? 'Verildi' : 'Yaklaşık saat', color: health.exactAlarmGranted ? MizanTheme.green : MizanTheme.orange),
+                  MetricCard(label: 'Planlı bildirim', value: health.pendingCount.toString(), color: MizanTheme.blue),
+                ]),
+                const SizedBox(height: 12),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  FilledButton.icon(onPressed: controller.requestNotificationPermissions, icon: const Icon(Icons.notifications_active_outlined), label: const Text('İzinleri kontrol et')),
+                  OutlinedButton.icon(onPressed: controller.rescheduleNotifications, icon: const Icon(Icons.refresh), label: const Text('Yeniden planla')),
+                  OutlinedButton.icon(onPressed: controller.openBatteryOptimizationSettings, icon: const Icon(Icons.battery_alert_outlined), label: const Text('Pil optimizasyonu')),
+                ]),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const SectionTitle('Günlük gider hatırlatmaları', subtitle: 'Her saat, mesaj ve açık/kapalı durumu ayrı düzenlenir'),
+        const SizedBox(height: 10),
+        for (final slot in state.notificationSlots) ...[
+          MizanListCard(
+            title: '${slot.label} · ${timeLabel(slot.hour, slot.minute)}',
+            subtitle: slot.message,
+            leadingColor: slot.enabled ? MizanTheme.green : MizanTheme.muted,
+            icon: Icons.alarm_outlined,
+            trailing: Switch.adaptive(
+              value: slot.enabled,
+              onChanged: (value) => controller.updateNotificationSlot(slotId: slot.id, enabled: value),
+            ),
+            onTap: () => _editSlot(context, slot),
+          ),
+          const SizedBox(height: 10),
+        ],
+        const SizedBox(height: 10),
+        const MizanListCard(
+          title: 'Ödeme bildirim aralığı',
+          subtitle: 'Son ödeme tarihinden 5 gün önce başlar, vade gününü ve gecikmeden sonraki 5 günü kapsar. Kalan tutar varsa her gün 09:00 ve 18:00’de kayıt bazlı planlanır.',
+          leadingColor: MizanTheme.blue,
+          icon: Icons.date_range_outlined,
+        ),
+        const SizedBox(height: 16),
+        const SectionTitle('Yerel veri güvenliği'),
+        const SizedBox(height: 10),
+        const MizanListCard(
+          title: 'Atomik cihaz kaydı',
+          subtitle: 'Veri önce geçici dosyaya yazılır ve doğrulanır. Ana kayıt güncellenmeden önce son sağlam kopya yedeklenir.',
+          leadingColor: MizanTheme.green,
+          icon: Icons.phonelink_lock_outlined,
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(foregroundColor: MizanTheme.red, minimumSize: const Size.fromHeight(50)),
+          onPressed: () => _confirmReset(context),
+          icon: const Icon(Icons.restart_alt),
+          label: const Text('Tüm veriyi örnek kayıtlarla sıfırla'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editSlot(BuildContext context, NotificationSlot slot) async {
+    var time = TimeOfDay(hour: slot.hour, minute: slot.minute);
+    final message = TextEditingController(text: slot.message);
+    final key = GlobalKey<FormState>();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: Text('${slot.label} bildirimi'),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 540),
+              child: Form(
+                key: key,
+                child: SingleChildScrollView(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final selected = await showTimePicker(context: dialogContext, initialTime: time);
+                        if (selected != null) setDialogState(() => time = selected);
+                      },
+                      icon: const Icon(Icons.schedule),
+                      label: Text(time.format(dialogContext)),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: message,
+                      maxLength: 160,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: const InputDecoration(labelText: 'Bildirim mesajı'),
+                      validator: (value) => value == null || value.trim().isEmpty ? 'Bildirim mesajı boş bırakılamaz.' : null,
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Vazgeç')),
+              FilledButton(
+                onPressed: () async {
+                  if (!(key.currentState?.validate() ?? false)) return;
+                  await controller.updateNotificationSlot(slotId: slot.id, hour: time.hour, minute: time.minute, message: message.text);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                },
+                child: const Text('Kaydet'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      message.dispose();
+    }
+  }
+
+  Future<void> _confirmReset(BuildContext context) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Tüm veriyi sıfırla'),
+        content: const SingleChildScrollView(child: Text('Mevcut kişiler, banka grupları, borçlar, faturalar, kiralar, ödemeler, notlar, kategoriler ve giderler silinerek örnek veri yeniden oluşturulacak. Bu işlem geri alınamaz.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Vazgeç')),
+          FilledButton(style: FilledButton.styleFrom(backgroundColor: MizanTheme.red), onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Tüm veriyi sıfırla')),
+        ],
+      ),
+    );
+    if (accepted == true) await controller.resetDemoData();
+  }
+}

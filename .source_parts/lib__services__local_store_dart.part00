@@ -1,0 +1,158 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path_provider/path_provider.dart';
+
+import '../models/mizan_models.dart';
+
+enum StoreLoadSource { primary, backup, seed }
+
+class StoreLoadResult {
+  const StoreLoadResult({
+    required this.state,
+    required this.source,
+    this.message,
+  });
+
+  final MizanState state;
+  final StoreLoadSource source;
+  final String? message;
+}
+
+abstract class MizanStore {
+  Future<StoreLoadResult> load();
+  Future<void> save(MizanState state);
+  Future<void> reset(MizanState state);
+}
+
+class LocalStore implements MizanStore {
+  LocalStore({Directory? directory}) : _overrideDirectory = directory;
+
+  static const _primaryFileName = 'mizan_state.json';
+  static const _backupFileName = 'mizan_state.backup.json';
+  static const _temporaryFileName = 'mizan_state.tmp.json';
+
+  final Directory? _overrideDirectory;
+
+  Future<Directory> _directory() async {
+    final directory = _overrideDirectory ?? await getApplicationSupportDirectory();
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+    return directory;
+  }
+
+  Future<File> _file(String name) async => File('${(await _directory()).path}/$name');
+
+  @override
+  Future<StoreLoadResult> load() async {
+    final primary = await _file(_primaryFileName);
+    final backup = await _file(_backupFileName);
+
+    final primaryResult = await _tryRead(primary);
+    if (primaryResult != null) {
+      return StoreLoadResult(
+        state: primaryResult,
+        source: StoreLoadSource.primary,
+      );
+    }
+
+    final backupResult = await _tryRead(backup);
+    if (backupResult != null) {
+      await save(backupResult);
+      return StoreLoadResult(
+        state: backupResult,
+        source: StoreLoadSource.backup,
+        message: 'Ana kayıt okunamadı; son sağlam yedek geri yüklendi.',
+      );
+    }
+
+    final seed = MizanState.seed();
+    await save(seed);
+    return StoreLoadResult(
+      state: seed,
+      source: StoreLoadSource.seed,
+      message: await primary.exists() || await backup.exists()
+          ? 'Kayıt dosyaları okunamadı. Güvenli örnek veriyle yeni kayıt oluşturuldu.'
+          : 'İlk kullanım için örnek kayıtlar oluşturuldu.',
+    );
+  }
+
+  Future<MizanState?> _tryRead(File file) async {
+    if (!await file.exists()) return null;
+    try {
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final envelope = Map<String, dynamic>.from(decoded);
+      final stateJson = envelope['state'];
+      if (stateJson is Map) {
+        return MizanState.fromJson(Map<String, dynamic>.from(stateJson));
+      }
+      return MizanState.fromJson(envelope);
+    } on Object {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> save(MizanState state) async {
+    final primary = await _file(_primaryFileName);
+    final backup = await _file(_backupFileName);
+    final temporary = await _file(_temporaryFileName);
+    final envelope = <String, dynamic>{
+      'format': 'lefferion-prime-mizan',
+      'schemaVersion': currentSchemaVersion,
+      'savedAt': DateTime.now().toUtc().toIso8601String(),
+      'state': state.copyWith(schemaVersion: currentSchemaVersion).toJson(),
+    };
+    final encoded = const JsonEncoder.withIndent('  ').convert(envelope);
+
+    await temporary.writeAsString(encoded, flush: true);
+    final verified = await _tryRead(temporary);
+    if (verified == null) {
+      try {
+        await temporary.delete();
+      } on FileSystemException {
+        // Doğrulama hatası asıl hatadır; geçici dosya temizleme hatası bastırılır.
+      }
+      throw const FileSystemException('Geçici kayıt doğrulanamadı.');
+    }
+
+    if (await primary.exists()) {
+      await primary.copy(backup.path);
+    }
+
+    if (await primary.exists()) {
+      await primary.delete();
+    }
+    try {
+      await temporary.rename(primary.path);
+    } on FileSystemException {
+      await temporary.copy(primary.path);
+      await temporary.delete();
+    }
+
+    final finalVerification = await _tryRead(primary);
+    if (finalVerification == null) {
+      if (await backup.exists()) {
+        await backup.copy(primary.path);
+      }
+      throw const FileSystemException('Kayıt doğrulaması başarısız oldu.');
+    }
+  }
+
+  @override
+  Future<void> reset(MizanState state) async {
+    final primary = await _file(_primaryFileName);
+    final backup = await _file(_backupFileName);
+    final temporary = await _file(_temporaryFileName);
+    for (final file in [primary, backup, temporary]) {
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+    await save(state);
+  }
+}

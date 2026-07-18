@@ -1,0 +1,117 @@
+                      await widget.controller.updateExpense(expenseId: expense.id, categoryId: categoryId, name: name.text, quantity: q, unitPrice: price, spentAt: spentAt, note: note.text);
+                    }
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  } on Object catch (error) {
+                    if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(_errorText(error))));
+                  }
+                },
+                child: const Text('Kaydet'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      name.dispose(); quantity.dispose(); unitPrice.dispose(); note.dispose();
+    }
+  }
+}
+
+class _Filters extends StatelessWidget {
+  const _Filters({required this.state, required this.period, required this.selectedMonth, required this.categoryFilter, required this.onPeriod, required this.onMonth, required this.onCategory, required this.onQuery});
+  final MizanState state;
+  final _ExpensePeriod period;
+  final DateTime selectedMonth;
+  final String? categoryFilter;
+  final ValueChanged<_ExpensePeriod> onPeriod;
+  final ValueChanged<DateTime> onMonth;
+  final ValueChanged<String?> onCategory;
+  final ValueChanged<String> onQuery;
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[
+      TextField(onChanged: onQuery, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), labelText: 'Harcama ara')),
+      DropdownButtonFormField<_ExpensePeriod>(initialValue: period, decoration: const InputDecoration(labelText: 'Tarih aralığı'), items: [for (final item in _ExpensePeriod.values) DropdownMenuItem(value: item, child: Text(item.label))], onChanged: (value) { if (value != null) onPeriod(value); }),
+      DropdownButtonFormField<String?>(initialValue: categoryFilter, decoration: const InputDecoration(labelText: 'Kategori filtresi'), items: [const DropdownMenuItem(value: null, child: Text('Tüm kategoriler')), for (final category in state.expenseCategories) DropdownMenuItem(value: category.id, child: Text(category.name))], onChanged: onCategory),
+      if (period == _ExpensePeriod.month)
+        OutlinedButton.icon(
+          onPressed: () async {
+            final date = await showDatePicker(context: context, initialDate: selectedMonth, firstDate: DateTime(2000), lastDate: DateTime(2100), helpText: 'Ay içinden bir gün seçin');
+            if (date != null) onMonth(DateTime(date.year, date.month));
+          },
+          icon: const Icon(Icons.calendar_month),
+          label: Text(monthLabel(selectedMonth)),
+        ),
+    ];
+    return LayoutBuilder(builder: (_, constraints) {
+      if (constraints.maxWidth < 760 || MediaQuery.textScalerOf(context).scale(1) > 1.25) {
+        return Column(children: [for (var i = 0; i < children.length; i++) ...[children[i], if (i < children.length - 1) const SizedBox(height: 10)]]);
+      }
+      return Wrap(spacing: 10, runSpacing: 10, children: [for (final child in children) SizedBox(width: constraints.maxWidth / 2 - 5, child: child)]);
+    });
+  }
+}
+
+class _CategoryCard extends StatelessWidget {
+  const _CategoryCard({required this.controller, required this.category, required this.expenses, required this.allExpenseCount, required this.onEditCategory, required this.onDeleteCategory, required this.onAddExpense, required this.onEditExpense});
+  final MizanController controller;
+  final ExpenseCategory category;
+  final List<ExpenseItem> expenses;
+  final int allExpenseCount;
+  final VoidCallback onEditCategory, onDeleteCategory, onAddExpense;
+  final ValueChanged<ExpenseItem> onEditExpense;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = expenses.fold<double>(0, (sum, item) => sum + item.totalAmount);
+    return Card(
+      child: ExpansionTile(
+        key: PageStorageKey('expense-category-${category.id}'),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        title: Text(category.name, softWrap: true, style: const TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: Text('$allExpenseCount toplam harcama · Filtre toplamı ${money(total)}'),
+        trailing: PopupMenuButton<String>(
+          tooltip: 'Kategori işlemleri',
+          onSelected: (value) {
+            if (value == 'add') onAddExpense();
+            if (value == 'edit') onEditCategory();
+            if (value == 'delete') onDeleteCategory();
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'add', child: Text('Harcama ekle')),
+            PopupMenuItem(value: 'edit', child: Text('Kategoriyi düzenle')),
+            PopupMenuItem(value: 'delete', child: Text('Kategoriyi sil')),
+          ],
+        ),
+        children: [
+          if (expenses.isEmpty)
+            const EmptyState(title: 'Bu filtrede harcama yok', message: 'Kategoriye yeni harcama ekleyebilir veya tarih filtresini değiştirebilirsin.')
+          else
+            for (final expense in expenses) ...[
+              MizanListCard(
+                title: expense.name,
+                subtitle: '${decimalText(expense.quantity)} × ${money(expense.unitPrice)} · ${shortDate(expense.spentAt)}${expense.note.isEmpty ? '' : '\n${expense.note}'}',
+                leadingColor: Color(category.colorValue),
+                icon: Icons.shopping_bag_outlined,
+                trailing: PopupMenuButton<String>(
+                  onSelected: (value) async {
+                    if (value == 'edit') onEditExpense(expense);
+                    if (value == 'delete') {
+                      final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Harcamayı sil'), content: Text('${expense.name} harcaması silinsin mi?'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Vazgeç')), FilledButton(style: FilledButton.styleFrom(backgroundColor: MizanTheme.red), onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Sil'))]));
+                      if (accepted == true) await controller.deleteExpense(expense.id);
+                    }
+                  },
+                  itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Düzenle')), PopupMenuItem(value: 'delete', child: Text('Sil'))],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+String _errorText(Object error) => error.toString().replaceFirst('Invalid argument(s): ', '').replaceFirst('FormatException: ', '').replaceFirst('Bad state: ', '');

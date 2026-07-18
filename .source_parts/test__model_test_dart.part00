@@ -1,0 +1,47 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lefferion_prime_mizan/models/mizan_models.dart';
+
+void main() {
+  test('kısmi ödeme yalnız kaynak borcun kalanını azaltır', () {
+    final debtA = DebtProduct(id: 'a', kind: DebtKind.creditCard, title: 'A', totalAmount: 1000, monthlyAmount: 100, dueDate: DateTime(2026, 7, 20), payments: [PaymentRecord(id: 'pa', amount: 250, paidAt: DateTime(2026, 7, 1))]);
+    final debtB = DebtProduct(id: 'b', kind: DebtKind.loan, title: 'B', totalAmount: 2000, monthlyAmount: 200, dueDate: DateTime(2026, 7, 22));
+    final bank = BankGroup(id: 'bank', userWrittenName: 'Kullanıcının yazdığı ad', products: [debtA, debtB]);
+    expect(debtA.remainingAmount, 750);
+    expect(debtB.remainingAmount, 2000);
+    expect(bank.totalDebt, 2750);
+  });
+
+  test('durum yazıyla doğru hesaplanır', () {
+    final reference = DateTime(2026, 7, 18);
+    DebtProduct debt(DateTime due, {double paid = 0, bool archived = false}) => DebtProduct(
+      id: due.toIso8601String(), kind: DebtKind.loan, title: 'Test', totalAmount: 100,
+      monthlyAmount: 10, dueDate: due, isArchived: archived,
+      payments: paid == 0 ? const [] : [PaymentRecord(id: 'p-$paid', amount: paid, paidAt: reference)],
+    );
+    expect(debt(DateTime(2026, 7, 30)).statusAt(reference), PaymentStatus.active);
+    expect(debt(DateTime(2026, 7, 20)).statusAt(reference), PaymentStatus.upcoming);
+    expect(debt(DateTime(2026, 7, 17)).statusAt(reference), PaymentStatus.overdue);
+    expect(debt(DateTime(2026, 7, 20), paid: 100).statusAt(reference), PaymentStatus.completed);
+    expect(debt(DateTime(2026, 7, 20), archived: true).statusAt(reference), PaymentStatus.passive);
+  });
+
+  test('gider toplamları borç toplamına karışmaz', () {
+    final state = MizanState(
+      people: [PersonAccount(id: 'p', name: 'Kişi', bills: [BillEntry(id: 'b', kind: BillKind.water, institutionName: 'Kurum', amount: 500, dueDate: DateTime(2026, 7, 20))])],
+      expenseCategories: const [ExpenseCategory(id: 'c', name: 'Market')],
+      expenses: [ExpenseItem(id: 'e', categoryId: 'c', name: 'Ürün', quantity: 2, unitPrice: 25.25, spentAt: DateTime(2026, 7, 18))],
+      notificationSlots: defaultNotificationSlots,
+    );
+    expect(state.totalDebt, 500);
+    expect(state.expenseTotalForDay(DateTime(2026, 7, 18)), 50.50);
+    expect(state.expenseTotalForMonth(DateTime(2026, 7)), 50.50);
+  });
+
+  test('JSON turu ödeme ve not kaynak bağını korur', () {
+    final state = MizanState.seed();
+    final decoded = MizanState.fromJson(state.toJson());
+    expect(decoded.people.first.banks.first.products.first.payments.length, 1);
+    expect(decoded.expenses.length, state.expenses.length);
+    expect(decoded.schemaVersion, currentSchemaVersion);
+  });
+}

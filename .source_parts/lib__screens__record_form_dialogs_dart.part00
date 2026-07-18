@@ -1,0 +1,399 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../controllers/mizan_controller.dart';
+import '../core/formatters.dart';
+import '../models/mizan_models.dart';
+
+Future<void> showPersonForm({
+  required BuildContext context,
+  required MizanController controller,
+  PersonAccount? person,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _PersonForm(controller: controller, person: person),
+  );
+}
+
+Future<void> showBankForm({
+  required BuildContext context,
+  required MizanController controller,
+  required PersonAccount person,
+  BankGroup? bank,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _BankForm(controller: controller, person: person, bank: bank),
+  );
+}
+
+Future<void> showDebtForm({
+  required BuildContext context,
+  required MizanController controller,
+  required PersonAccount person,
+  required BankGroup bank,
+  DebtProduct? debt,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _DebtForm(controller: controller, person: person, bank: bank, debt: debt),
+  );
+}
+
+Future<void> showBillForm({
+  required BuildContext context,
+  required MizanController controller,
+  required PersonAccount person,
+  BillEntry? bill,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _BillForm(controller: controller, person: person, bill: bill),
+  );
+}
+
+Future<void> showRentForm({
+  required BuildContext context,
+  required MizanController controller,
+  required PersonAccount person,
+  RentEntry? rent,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _RentForm(controller: controller, person: person, rent: rent),
+  );
+}
+
+Future<void> showPaymentForm({
+  required BuildContext context,
+  required MizanController controller,
+  required String personId,
+  required RecordType type,
+  required String sourceId,
+  required double remainingAmount,
+  PaymentRecord? payment,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _PaymentForm(
+      controller: controller,
+      personId: personId,
+      type: type,
+      sourceId: sourceId,
+      remainingAmount: remainingAmount,
+      payment: payment,
+    ),
+  );
+}
+
+class _DialogShell extends StatelessWidget {
+  const _DialogShell({
+    required this.title,
+    required this.formKey,
+    required this.children,
+    required this.onSave,
+  });
+
+  final String title;
+  final GlobalKey<FormState> formKey;
+  final List<Widget> children;
+  final Future<void> Function() onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(title),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 620,
+          maxHeight: MediaQuery.sizeOf(context).height * .72,
+        ),
+        child: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: _withSpacing(children),
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Vazgeç')),
+        FilledButton(
+          onPressed: () async {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            try {
+              await onSave();
+              if (context.mounted) Navigator.pop(context);
+            } on Object catch (error) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(_message(error))),
+              );
+            }
+          },
+          child: const Text('Kaydet'),
+        ),
+      ],
+    );
+  }
+}
+
+List<Widget> _withSpacing(List<Widget> children) {
+  return [
+    for (var i = 0; i < children.length; i++) ...[
+      children[i],
+      if (i != children.length - 1) const SizedBox(height: 12),
+    ],
+  ];
+}
+
+String _message(Object error) => error
+    .toString()
+    .replaceFirst('Invalid argument(s): ', '')
+    .replaceFirst('FormatException: ', '')
+    .replaceFirst('Bad state: ', '');
+
+String? _required(String? value, String label) =>
+    value == null || value.trim().isEmpty ? '$label boş bırakılamaz.' : null;
+
+String? _moneyValidator(String? value, String label, {bool allowZero = false}) {
+  try {
+    final parsed = parseMoney(value ?? '');
+    if (allowZero ? parsed < 0 : parsed <= 0) return '$label geçersiz.';
+    return null;
+  } on FormatException catch (error) {
+    return error.message;
+  }
+}
+
+String? _positiveNumber(String? value, String label) {
+  try {
+    parsePositiveDecimal(value ?? '', fieldName: label);
+    return null;
+  } on FormatException catch (error) {
+    return error.message;
+  }
+}
+
+class _PersonForm extends StatefulWidget {
+  const _PersonForm({required this.controller, this.person});
+  final MizanController controller;
+  final PersonAccount? person;
+  @override
+  State<_PersonForm> createState() => _PersonFormState();
+}
+
+class _PersonFormState extends State<_PersonForm> {
+  final key = GlobalKey<FormState>();
+  late final TextEditingController name;
+  @override
+  void initState() {
+    super.initState();
+    name = TextEditingController(text: widget.person?.name ?? '');
+  }
+  @override
+  void dispose() { name.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    return _DialogShell(
+      title: widget.person == null ? 'Kişi ekle' : 'Kişiyi düzenle',
+      formKey: key,
+      children: [
+        TextFormField(
+          controller: name,
+          maxLength: 80,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Kişi adı'),
+          validator: (value) => _required(value, 'Kişi adı'),
+        ),
+      ],
+      onSave: () => widget.person == null
+          ? widget.controller.addPerson(name.text)
+          : widget.controller.updatePerson(personId: widget.person!.id, name: name.text),
+    );
+  }
+}
+
+class _BankForm extends StatefulWidget {
+  const _BankForm({required this.controller, required this.person, this.bank});
+  final MizanController controller;
+  final PersonAccount person;
+  final BankGroup? bank;
+  @override
+  State<_BankForm> createState() => _BankFormState();
+}
+
+class _BankFormState extends State<_BankForm> {
+  final key = GlobalKey<FormState>();
+  late final TextEditingController name;
+  @override
+  void initState() { super.initState(); name = TextEditingController(text: widget.bank?.userWrittenName ?? ''); }
+  @override
+  void dispose() { name.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    return _DialogShell(
+      title: widget.bank == null ? 'Banka grubu ekle' : 'Banka grubunu düzenle',
+      formKey: key,
+      children: [
+        TextFormField(
+          controller: name,
+          maxLength: 100,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'Banka adı',
+            helperText: 'Hazır marka listesi yoktur; adı kullanıcı belirler.',
+          ),
+          validator: (value) => _required(value, 'Banka adı'),
+        ),
+      ],
+      onSave: () => widget.bank == null
+          ? widget.controller.addBankGroup(personId: widget.person.id, userWrittenName: name.text)
+          : widget.controller.updateBankGroup(
+              personId: widget.person.id,
+              bankId: widget.bank!.id,
+              userWrittenName: name.text,
+            ),
+    );
+  }
+}
+
+class _DebtForm extends StatefulWidget {
+  const _DebtForm({required this.controller, required this.person, required this.bank, this.debt});
+  final MizanController controller;
+  final PersonAccount person;
+  final BankGroup bank;
+  final DebtProduct? debt;
+  @override
+  State<_DebtForm> createState() => _DebtFormState();
+}
+
+class _DebtFormState extends State<_DebtForm> {
+  final key = GlobalKey<FormState>();
+  late final TextEditingController title, total, monthly, custom, installmentCount, currentInstallment, limit, usedLimit, description;
+  late DebtKind kind;
+  late DateTime dueDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = widget.debt;
+    kind = item?.kind ?? DebtKind.creditCard;
+    dueDate = item?.dueDate ?? dateOnly(DateTime.now().add(const Duration(days: 7)));
+    title = TextEditingController(text: item?.title ?? '');
+    total = TextEditingController(text: item == null ? '' : decimalText(item.totalAmount));
+    monthly = TextEditingController(text: item == null ? '' : decimalText(item.monthlyAmount));
+    custom = TextEditingController(text: item?.customKindName ?? '');
+    installmentCount = TextEditingController(text: item?.installmentCount?.toString() ?? '');
+    currentInstallment = TextEditingController(text: item?.currentInstallment?.toString() ?? '');
+    limit = TextEditingController(text: item?.limit == null ? '' : decimalText(item!.limit!));
+    usedLimit = TextEditingController(text: item?.usedLimit == null ? '' : decimalText(item!.usedLimit!));
+    description = TextEditingController(text: item?.description ?? '');
+  }
+
+  @override
+  void dispose() {
+    for (final controller in [title,total,monthly,custom,installmentCount,currentInstallment,limit,usedLimit,description]) { controller.dispose(); }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _DialogShell(
+      title: widget.debt == null ? 'Borç ürünü ekle' : 'Borç ürününü düzenle',
+      formKey: key,
+      children: [
+        DropdownButtonFormField<DebtKind>(
+          initialValue: kind,
+          decoration: const InputDecoration(labelText: 'Borç türü'),
+          items: [for (final item in DebtKind.values) DropdownMenuItem(value: item, child: Text(item.label))],
+          onChanged: (value) => setState(() => kind = value ?? kind),
+        ),
+        if (kind == DebtKind.custom)
+          TextFormField(controller: custom, maxLength: 60, decoration: const InputDecoration(labelText: 'Özel borç türü'), validator: (v) => _required(v, 'Özel borç türü')),
+        TextFormField(controller: title, maxLength: 100, decoration: const InputDecoration(labelText: 'Başlık'), validator: (v) => _required(v, 'Başlık')),
+        _MoneyField(controller: total, label: 'Toplam borç', validator: (v) => _moneyValidator(v, 'Toplam borç')),
+        _MoneyField(controller: monthly, label: 'Aylık tutar', validator: (v) => _moneyValidator(v, 'Aylık tutar', allowZero: true)),
+        _DateField(label: 'Son ödeme tarihi', value: dueDate, onChanged: (value) => setState(() => dueDate = value)),
+        _TwoColumn(
+          left: TextFormField(controller: installmentCount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'Toplam taksit')),
+          right: TextFormField(controller: currentInstallment, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'Mevcut taksit')),
+        ),
+        _TwoColumn(
+          left: _MoneyField(controller: limit, label: 'Limit (opsiyonel)', requiredValue: false),
+          right: _MoneyField(controller: usedLimit, label: 'Kullanılan limit', requiredValue: false),
+        ),
+        TextFormField(controller: description, maxLength: 240, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Açıklama')),
+      ],
+      onSave: () {
+        final args = (
+          personId: widget.person.id,
+          bankId: widget.bank.id,
+          kind: kind,
+          title: title.text,
+          totalAmount: parseMoney(total.text),
+          monthlyAmount: monthly.text.trim().isEmpty ? 0.0 : parseMoney(monthly.text),
+          dueDate: dueDate,
+          customKindName: custom.text,
+          installmentCount: parseOptionalPositiveInt(installmentCount.text, fieldName: 'Toplam taksit'),
+          currentInstallment: parseOptionalPositiveInt(currentInstallment.text, fieldName: 'Mevcut taksit'),
+          limit: limit.text.trim().isEmpty ? null : parseMoney(limit.text),
+          usedLimit: usedLimit.text.trim().isEmpty ? null : parseMoney(usedLimit.text),
+          description: description.text,
+        );
+        if (widget.debt == null) {
+          return widget.controller.addDebtProduct(
+            personId: args.personId, bankId: args.bankId, kind: args.kind, title: args.title,
+            totalAmount: args.totalAmount, monthlyAmount: args.monthlyAmount, dueDate: args.dueDate,
+            customKindName: args.customKindName, installmentCount: args.installmentCount,
+            currentInstallment: args.currentInstallment, limit: args.limit, usedLimit: args.usedLimit,
+            description: args.description,
+          );
+        }
+        return widget.controller.updateDebtProduct(
+          personId: args.personId, bankId: args.bankId, debtId: widget.debt!.id,
+          kind: args.kind, title: args.title, totalAmount: args.totalAmount,
+          monthlyAmount: args.monthlyAmount, dueDate: args.dueDate,
+          customKindName: args.customKindName, installmentCount: args.installmentCount,
+          currentInstallment: args.currentInstallment, limit: args.limit,
+          usedLimit: args.usedLimit, description: args.description,
+        );
+      },
+    );
+  }
+}
+
+class _BillForm extends StatefulWidget {
+  const _BillForm({required this.controller, required this.person, this.bill});
+  final MizanController controller;
+  final PersonAccount person;
+  final BillEntry? bill;
+  @override
+  State<_BillForm> createState() => _BillFormState();
+}
+
+class _BillFormState extends State<_BillForm> {
+  final key = GlobalKey<FormState>();
+  late BillKind kind;
+  late DateTime dueDate;
+  late final TextEditingController institution, amount, subscriber, contract, description;
+  @override
+  void initState() {
+    super.initState(); final item=widget.bill; kind=item?.kind??BillKind.electricity; dueDate=item?.dueDate??dateOnly(DateTime.now().add(const Duration(days:7)));
+    institution=TextEditingController(text:item?.institutionName??''); amount=TextEditingController(text:item==null?'':decimalText(item.amount)); subscriber=TextEditingController(text:item?.subscriberNumber??''); contract=TextEditingController(text:item?.contractNumber??''); description=TextEditingController(text:item?.description??'');
+  }
+  @override
+  void dispose(){ for(final c in [institution,amount,subscriber,contract,description]){c.dispose();} super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    return _DialogShell(
+      title: widget.bill==null?'Fatura ekle':'Faturayı düzenle', formKey:key,
+      children:[

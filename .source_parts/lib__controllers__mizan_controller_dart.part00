@@ -1,0 +1,543 @@
+import 'package:flutter/foundation.dart';
+
+import '../core/formatters.dart';
+import '../models/mizan_models.dart';
+import '../services/local_store.dart';
+import '../services/notification_service.dart';
+
+class MizanController extends ChangeNotifier {
+  MizanController(
+    this._store, {
+    ReminderScheduler scheduler = const NoopReminderScheduler(),
+  }) : _scheduler = scheduler;
+
+  final MizanStore _store;
+  final ReminderScheduler _scheduler;
+
+  MizanState _state = MizanState.empty();
+  bool _isReady = false;
+  bool _isBusy = false;
+  String? _lastError;
+  String? _loadMessage;
+  NotificationHealth _notificationHealth = const NotificationHealth();
+
+  MizanState get state => _state;
+  bool get isReady => _isReady;
+  bool get isBusy => _isBusy;
+  String? get lastError => _lastError;
+  String? get loadMessage => _loadMessage;
+  NotificationHealth get notificationHealth => _notificationHealth;
+
+  Future<void> load() async {
+    _isBusy = true;
+    notifyListeners();
+    try {
+      await _scheduler.initialize();
+      final result = await _store.load();
+      _state = result.state;
+      _loadMessage = result.message;
+      await _scheduler.reschedule(_state);
+      _notificationHealth = await _scheduler.health();
+      _lastError = null;
+    } on Object catch (error) {
+      _lastError = _friendlyError(error);
+      _state = MizanState.seed();
+    } finally {
+      _isBusy = false;
+      _isReady = true;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _commit(MizanState next, {bool reschedule = true}) async {
+    _isBusy = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      _validateState(next);
+      await _store.save(next);
+      _state = next;
+      if (reschedule) {
+        try {
+          await _scheduler.reschedule(next);
+          _notificationHealth = await _scheduler.health();
+        } on Object catch (error) {
+          _lastError = 'Kayıt yapıldı ancak bildirimler yenilenemedi: ${_friendlyError(error)}';
+        }
+      }
+    } on Object catch (error) {
+      _lastError = _friendlyError(error);
+      rethrow;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  void clearMessages() {
+    _lastError = null;
+    _loadMessage = null;
+    notifyListeners();
+  }
+
+  Future<void> addPerson(String name) async {
+    final clean = _requiredText(name, 'Kişi adı', 80);
+    await _commit(
+      _state.copyWith(
+        people: [
+          ..._state.people,
+          PersonAccount(id: newId('person'), name: clean),
+        ],
+      ),
+    );
+  }
+
+  Future<void> updatePerson({required String personId, required String name}) async {
+    final clean = _requiredText(name, 'Kişi adı', 80);
+    _person(personId);
+    await _commit(
+      _state.copyWith(
+        people: _state.people
+            .map((person) => person.id == personId ? person.copyWith(name: clean) : person)
+            .toList(growable: false),
+      ),
+    );
+  }
+
+  Future<void> deletePerson(String personId) async {
+    _person(personId);
+    await _commit(
+      _state.copyWith(
+        people: _state.people.where((person) => person.id != personId).toList(),
+      ),
+    );
+  }
+
+  Future<void> addBankGroup({
+    required String personId,
+    required String userWrittenName,
+  }) async {
+    final clean = _requiredText(userWrittenName, 'Banka adı', 100);
+    final person = _person(personId);
+    _ensureUniqueBankName(person, clean);
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          banks: [
+            ...person.banks,
+            BankGroup(id: newId('bank'), userWrittenName: clean),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> updateBankGroup({
+    required String personId,
+    required String bankId,
+    required String userWrittenName,
+  }) async {
+    final clean = _requiredText(userWrittenName, 'Banka adı', 100);
+    final person = _person(personId);
+    _bank(person, bankId);
+    _ensureUniqueBankName(person, clean, excludingId: bankId);
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          banks: person.banks
+              .map((bank) => bank.id == bankId
+                  ? bank.copyWith(userWrittenName: clean)
+                  : bank)
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> deleteBankGroup({required String personId, required String bankId}) async {
+    final person = _person(personId);
+    _bank(person, bankId);
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          banks: person.banks.where((bank) => bank.id != bankId).toList(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> addDebtProduct({
+    required String personId,
+    required String bankId,
+    required DebtKind kind,
+    required String title,
+    required double totalAmount,
+    required double monthlyAmount,
+    required DateTime dueDate,
+    String customKindName = '',
+    int? installmentCount,
+    int? currentInstallment,
+    double? limit,
+    double? usedLimit,
+    String description = '',
+  }) async {
+    final person = _person(personId);
+    final bank = _bank(person, bankId);
+    final debt = _buildDebt(
+      id: newId('debt'),
+      kind: kind,
+      title: title,
+      totalAmount: totalAmount,
+      monthlyAmount: monthlyAmount,
+      dueDate: dueDate,
+      customKindName: customKindName,
+      installmentCount: installmentCount,
+      currentInstallment: currentInstallment,
+      limit: limit,
+      usedLimit: usedLimit,
+      description: description,
+    );
+    await _commit(
+      _replaceBank(
+        person,
+        bank.copyWith(products: [...bank.products, debt]),
+      ),
+    );
+  }
+
+  Future<void> updateDebtProduct({
+    required String personId,
+    required String bankId,
+    required String debtId,
+    required DebtKind kind,
+    required String title,
+    required double totalAmount,
+    required double monthlyAmount,
+    required DateTime dueDate,
+    String customKindName = '',
+    int? installmentCount,
+    int? currentInstallment,
+    double? limit,
+    double? usedLimit,
+    String description = '',
+  }) async {
+    final person = _person(personId);
+    final bank = _bank(person, bankId);
+    final existing = _debt(bank, debtId);
+    final replacement = _buildDebt(
+      id: existing.id,
+      kind: kind,
+      title: title,
+      totalAmount: totalAmount,
+      monthlyAmount: monthlyAmount,
+      dueDate: dueDate,
+      customKindName: customKindName,
+      installmentCount: installmentCount,
+      currentInstallment: currentInstallment,
+      limit: limit,
+      usedLimit: usedLimit,
+      description: description,
+      isArchived: existing.isArchived,
+      payments: existing.payments,
+      notes: existing.notes,
+    );
+    if (replacement.totalAmount < replacement.paidAmount) {
+      throw ArgumentError('Toplam borç, daha önce ödenen tutardan düşük olamaz.');
+    }
+    await _commit(
+      _replaceBank(
+        person,
+        bank.copyWith(
+          products: bank.products
+              .map((item) => item.id == debtId ? replacement : item)
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> deleteDebtProduct({
+    required String personId,
+    required String bankId,
+    required String debtId,
+  }) async {
+    final person = _person(personId);
+    final bank = _bank(person, bankId);
+    _debt(bank, debtId);
+    await _commit(
+      _replaceBank(
+        person,
+        bank.copyWith(
+          products: bank.products.where((item) => item.id != debtId).toList(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> setDebtArchived({
+    required String personId,
+    required String bankId,
+    required String debtId,
+    required bool archived,
+  }) async {
+    final person = _person(personId);
+    final bank = _bank(person, bankId);
+    _debt(bank, debtId);
+    await _commit(
+      _replaceBank(
+        person,
+        bank.copyWith(
+          products: bank.products
+              .map((item) => item.id == debtId
+                  ? item.copyWith(isArchived: archived)
+                  : item)
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> addBill({
+    required String personId,
+    required BillKind kind,
+    required String institutionName,
+    required double amount,
+    required DateTime dueDate,
+    String subscriberNumber = '',
+    String contractNumber = '',
+    String description = '',
+  }) async {
+    final person = _person(personId);
+    final bill = _buildBill(
+      id: newId('bill'),
+      kind: kind,
+      institutionName: institutionName,
+      amount: amount,
+      dueDate: dueDate,
+      subscriberNumber: subscriberNumber,
+      contractNumber: contractNumber,
+      description: description,
+    );
+    await _commit(_replacePerson(person.copyWith(bills: [...person.bills, bill])));
+  }
+
+  Future<void> updateBill({
+    required String personId,
+    required String billId,
+    required BillKind kind,
+    required String institutionName,
+    required double amount,
+    required DateTime dueDate,
+    String subscriberNumber = '',
+    String contractNumber = '',
+    String description = '',
+  }) async {
+    final person = _person(personId);
+    final existing = _bill(person, billId);
+    final replacement = _buildBill(
+      id: existing.id,
+      kind: kind,
+      institutionName: institutionName,
+      amount: amount,
+      dueDate: dueDate,
+      subscriberNumber: subscriberNumber,
+      contractNumber: contractNumber,
+      description: description,
+      isArchived: existing.isArchived,
+      payments: existing.payments,
+      notes: existing.notes,
+    );
+    if (replacement.amount < replacement.paidAmount) {
+      throw ArgumentError('Fatura tutarı, daha önce ödenen tutardan düşük olamaz.');
+    }
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          bills: person.bills
+              .map((item) => item.id == billId ? replacement : item)
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> deleteBill({required String personId, required String billId}) async {
+    final person = _person(personId);
+    _bill(person, billId);
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          bills: person.bills.where((item) => item.id != billId).toList(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> setBillArchived({
+    required String personId,
+    required String billId,
+    required bool archived,
+  }) async {
+    final person = _person(personId);
+    _bill(person, billId);
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          bills: person.bills
+              .map((item) => item.id == billId
+                  ? item.copyWith(isArchived: archived)
+                  : item)
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> addRent({
+    required String personId,
+    required String title,
+    required double amount,
+    required int paymentDay,
+    required String receiverName,
+    required DateTime dueDate,
+    String iban = '',
+    DateTime? contractStart,
+    DateTime? contractEnd,
+    DateTime? increaseDate,
+    int? installmentCount,
+    int? currentInstallment,
+    String description = '',
+  }) async {
+    final person = _person(personId);
+    final rent = _buildRent(
+      id: newId('rent'),
+      title: title,
+      amount: amount,
+      paymentDay: paymentDay,
+      receiverName: receiverName,
+      dueDate: dueDate,
+      iban: iban,
+      contractStart: contractStart,
+      contractEnd: contractEnd,
+      increaseDate: increaseDate,
+      installmentCount: installmentCount,
+      currentInstallment: currentInstallment,
+      description: description,
+    );
+    await _commit(_replacePerson(person.copyWith(rents: [...person.rents, rent])));
+  }
+
+  Future<void> updateRent({
+    required String personId,
+    required String rentId,
+    required String title,
+    required double amount,
+    required int paymentDay,
+    required String receiverName,
+    required DateTime dueDate,
+    String iban = '',
+    DateTime? contractStart,
+    DateTime? contractEnd,
+    DateTime? increaseDate,
+    int? installmentCount,
+    int? currentInstallment,
+    String description = '',
+  }) async {
+    final person = _person(personId);
+    final existing = _rent(person, rentId);
+    final replacement = _buildRent(
+      id: existing.id,
+      title: title,
+      amount: amount,
+      paymentDay: paymentDay,
+      receiverName: receiverName,
+      dueDate: dueDate,
+      iban: iban,
+      contractStart: contractStart,
+      contractEnd: contractEnd,
+      increaseDate: increaseDate,
+      installmentCount: installmentCount,
+      currentInstallment: currentInstallment,
+      description: description,
+      isArchived: existing.isArchived,
+      payments: existing.payments,
+      notes: existing.notes,
+    );
+    if (replacement.amount < replacement.paidAmount) {
+      throw ArgumentError('Kira/taksit tutarı, daha önce ödenen tutardan düşük olamaz.');
+    }
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          rents: person.rents
+              .map((item) => item.id == rentId ? replacement : item)
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> deleteRent({required String personId, required String rentId}) async {
+    final person = _person(personId);
+    _rent(person, rentId);
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          rents: person.rents.where((item) => item.id != rentId).toList(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> setRentArchived({
+    required String personId,
+    required String rentId,
+    required bool archived,
+  }) async {
+    final person = _person(personId);
+    _rent(person, rentId);
+    await _commit(
+      _replacePerson(
+        person.copyWith(
+          rents: person.rents
+              .map((item) => item.id == rentId
+                  ? item.copyWith(isArchived: archived)
+                  : item)
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> addPayment({
+    required String personId,
+    required RecordType type,
+    required String sourceId,
+    required double amount,
+    required DateTime paidAt,
+    String note = '',
+    String method = '',
+  }) async {
+    _positiveAmount(amount, 'Ödeme tutarı');
+    final person = _person(personId);
+    final payment = PaymentRecord(
+      id: newId('payment'),
+      amount: amount,
+      paidAt: paidAt,
+      note: _optionalText(note, 'Ödeme notu', 240),
+      method: _optionalText(method, 'Ödeme yöntemi', 80),
+    );
+    await _commit(_replacePerson(_personWithPayment(person, type, sourceId, payment)));
+  }
+
+  Future<void> updatePayment({
+    required String personId,
+    required RecordType type,
+    required String sourceId,
+    required String paymentId,
+    required double amount,
+    required DateTime paidAt,
+    String note = '',
+    String method = '',
+  }) async {
+    _positiveAmount(amount, 'Ödeme tutarı');

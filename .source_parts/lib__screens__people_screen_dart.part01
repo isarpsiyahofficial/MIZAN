@@ -1,0 +1,202 @@
+          onDeletePayment: (payment) => controller.deletePayment(personId: personId, type: RecordType.debt, sourceId: debtId, paymentId: payment.id),
+          onAddNote: (text) => controller.addNote(personId: personId, type: RecordType.debt, sourceId: debtId, text: text),
+          onDeleteNote: (noteId) => controller.deleteNote(personId: personId, type: RecordType.debt, sourceId: debtId, noteId: noteId),
+          onEdit: () => showDebtForm(context: sheetContext, controller: controller, person: person, bank: bank, debt: debt),
+          onArchive: () => controller.setDebtArchived(personId: personId, bankId: bankId, debtId: debtId, archived: !debt.isArchived),
+          archived: debt.isArchived,
+          onDelete: () => controller.deleteDebtProduct(personId: personId, bankId: bankId, debtId: debtId),
+        );
+      },
+    ),
+  );
+}
+
+void _showBillDetail(BuildContext context, MizanController controller, String personId, String billId) {
+  showModalBottomSheet<void>(
+    context: context, isScrollControlled: true, showDragHandle: true,
+    builder: (_) => AnimatedBuilder(
+      animation: controller,
+      builder: (sheetContext, __) {
+        final person = _person(controller.state, personId);
+        final bill = person.bills.firstWhere((item) => item.id == billId);
+        return _RecordSheet(
+          title: bill.kind.label, subtitle: bill.institutionName, status: bill.status,
+          total: bill.amount, remaining: bill.remainingAmount, dueDate: bill.dueDate, description: bill.description,
+          payments: bill.payments, notes: bill.notes,
+          detailRows: [if (bill.subscriberNumber.isNotEmpty) ('Abone no', bill.subscriberNumber), if (bill.contractNumber.isNotEmpty) ('Sözleşme / tesisat', bill.contractNumber)],
+          onAddPayment: bill.remainingAmount > 0 ? () => showPaymentForm(context: sheetContext, controller: controller, personId: personId, type: RecordType.bill, sourceId: billId, remainingAmount: bill.remainingAmount) : null,
+          onEditPayment: (payment) => showPaymentForm(context: sheetContext, controller: controller, personId: personId, type: RecordType.bill, sourceId: billId, remainingAmount: bill.remainingAmount + payment.amount, payment: payment),
+          onDeletePayment: (payment) => controller.deletePayment(personId: personId, type: RecordType.bill, sourceId: billId, paymentId: payment.id),
+          onAddNote: (text) => controller.addNote(personId: personId, type: RecordType.bill, sourceId: billId, text: text),
+          onDeleteNote: (noteId) => controller.deleteNote(personId: personId, type: RecordType.bill, sourceId: billId, noteId: noteId),
+          onEdit: () => showBillForm(context: sheetContext, controller: controller, person: person, bill: bill),
+          onArchive: () => controller.setBillArchived(personId: personId, billId: billId, archived: !bill.isArchived), archived: bill.isArchived,
+          onDelete: () => controller.deleteBill(personId: personId, billId: billId),
+        );
+      },
+    ),
+  );
+}
+
+void _showRentDetail(BuildContext context, MizanController controller, String personId, String rentId) {
+  showModalBottomSheet<void>(
+    context: context, isScrollControlled: true, showDragHandle: true,
+    builder: (_) => AnimatedBuilder(
+      animation: controller,
+      builder: (sheetContext, __) {
+        final person = _person(controller.state, personId);
+        final rent = person.rents.firstWhere((item) => item.id == rentId);
+        return _RecordSheet(
+          title: rent.title, subtitle: rent.receiverName, status: rent.status,
+          total: rent.amount, remaining: rent.remainingAmount, dueDate: rent.dueDate, description: rent.description,
+          payments: rent.payments, notes: rent.notes,
+          detailRows: [
+            ('Ödeme günü', rent.paymentDay.toString()),
+            if (rent.iban.isNotEmpty) ('IBAN', rent.iban),
+            if (rent.contractStart != null) ('Sözleşme başlangıcı', shortDate(rent.contractStart!)),
+            if (rent.contractEnd != null) ('Sözleşme bitişi', shortDate(rent.contractEnd!)),
+            if (rent.increaseDate != null) ('Artış tarihi', shortDate(rent.increaseDate!)),
+            if (rent.installmentCount != null) ('Taksit', '${rent.currentInstallment ?? 0}/${rent.installmentCount}'),
+          ],
+          onAddPayment: rent.remainingAmount > 0 ? () => showPaymentForm(context: sheetContext, controller: controller, personId: personId, type: RecordType.rent, sourceId: rentId, remainingAmount: rent.remainingAmount) : null,
+          onEditPayment: (payment) => showPaymentForm(context: sheetContext, controller: controller, personId: personId, type: RecordType.rent, sourceId: rentId, remainingAmount: rent.remainingAmount + payment.amount, payment: payment),
+          onDeletePayment: (payment) => controller.deletePayment(personId: personId, type: RecordType.rent, sourceId: rentId, paymentId: payment.id),
+          onAddNote: (text) => controller.addNote(personId: personId, type: RecordType.rent, sourceId: rentId, text: text),
+          onDeleteNote: (noteId) => controller.deleteNote(personId: personId, type: RecordType.rent, sourceId: rentId, noteId: noteId),
+          onEdit: () => showRentForm(context: sheetContext, controller: controller, person: person, rent: rent),
+          onArchive: () => controller.setRentArchived(personId: personId, rentId: rentId, archived: !rent.isArchived), archived: rent.isArchived,
+          onDelete: () => controller.deleteRent(personId: personId, rentId: rentId),
+        );
+      },
+    ),
+  );
+}
+
+class _RecordSheet extends StatelessWidget {
+  const _RecordSheet({
+    required this.title, required this.subtitle, required this.status, required this.total, required this.remaining,
+    required this.dueDate, required this.description, required this.payments, required this.notes, required this.detailRows,
+    required this.onEditPayment, required this.onDeletePayment, required this.onAddNote, required this.onDeleteNote,
+    required this.onEdit, required this.onArchive, required this.archived, required this.onDelete, this.onAddPayment,
+  });
+  final String title, subtitle, description;
+  final PaymentStatus status;
+  final double total, remaining;
+  final DateTime dueDate;
+  final List<PaymentRecord> payments;
+  final List<RecordNote> notes;
+  final List<(String, String)> detailRows;
+  final Future<void> Function()? onAddPayment;
+  final Future<void> Function(PaymentRecord) onEditPayment;
+  final Future<void> Function(PaymentRecord) onDeletePayment;
+  final Future<void> Function(String) onAddNote;
+  final Future<void> Function(String) onDeleteNote;
+  final Future<void> Function() onEdit, onArchive, onDelete;
+  final bool archived;
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height;
+    return SafeArea(
+      child: SizedBox(
+        height: height * .88,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)), const SizedBox(height: 4), Text(subtitle, style: const TextStyle(color: MizanTheme.muted, fontWeight: FontWeight.w700))])),
+                const SizedBox(width: 10), StatusChip(status: status),
+              ],
+            ),
+            const SizedBox(height: 14),
+            AdaptiveGrid(minTileWidth: 160, children: [
+              MetricCard(label: 'Toplam', value: money(total), color: MizanTheme.ink),
+              MetricCard(label: 'Ödenen', value: money(total - remaining), color: MizanTheme.green),
+              MetricCard(label: 'Kalan', value: money(remaining), color: statusColor(status)),
+            ]),
+            const SizedBox(height: 14),
+            Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
+              _DetailLine(label: 'Son ödeme', value: shortDate(dueDate)),
+              for (final row in detailRows) _DetailLine(label: row.$1, value: row.$2),
+              if (description.isNotEmpty) _DetailLine(label: 'Açıklama', value: description),
+            ]))),
+            const SizedBox(height: 14),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              if (onAddPayment != null) FilledButton.icon(onPressed: onAddPayment, icon: const Icon(Icons.payments_outlined), label: const Text('Ödeme ekle')),
+              OutlinedButton.icon(onPressed: onEdit, icon: const Icon(Icons.edit_outlined), label: const Text('Düzenle')),
+              OutlinedButton.icon(onPressed: onArchive, icon: Icon(archived ? Icons.unarchive_outlined : Icons.archive_outlined), label: Text(archived ? 'Arşivden çıkar' : 'Arşivle')),
+            ]),
+            const SizedBox(height: 18),
+            SectionTitle('Ödeme geçmişi', subtitle: '${payments.length} ödeme kaydı'),
+            const SizedBox(height: 8),
+            if (payments.isEmpty)
+              const EmptyState(title: 'Ödeme kaydı yok', message: 'Kısmi veya tam ödeme eklediğinde geçmiş burada görünür.')
+            else
+              for (final payment in [...payments]..sort((a, b) => b.paidAt.compareTo(a.paidAt))) ...[
+                MizanListCard(
+                  title: money(payment.amount),
+                  subtitle: '${shortDate(payment.paidAt)}${payment.method.isEmpty ? '' : ' · ${payment.method}'}${payment.note.isEmpty ? '' : '\n${payment.note}'}',
+                  leadingColor: MizanTheme.green,
+                  icon: Icons.check_circle_outline,
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (value) async {
+                      if (value == 'edit') await onEditPayment(payment);
+                      if (value == 'delete') await _confirmAction(context, title: 'Ödemeyi sil', message: '${money(payment.amount)} tutarındaki ödeme kaydı silinsin mi?', confirmLabel: 'Ödemeyi sil', action: () => onDeletePayment(payment));
+                    },
+                    itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Düzenle')), PopupMenuItem(value: 'delete', child: Text('Sil'))],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            const SizedBox(height: 14),
+            RecordNotesPanel(notes: notes, onAddNote: onAddNote, onDeleteNote: onDeleteNote),
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(foregroundColor: MizanTheme.red, minimumSize: const Size.fromHeight(48)),
+              onPressed: () => _confirmAction(context, title: 'Kaydı sil', message: '$title kaydı ödeme ve not geçmişiyle birlikte silinecek.', confirmLabel: 'Kaydı sil', action: () async { await onDelete(); if (context.mounted) Navigator.pop(context); }),
+              icon: const Icon(Icons.delete_outline), label: const Text('Bu kaydı sil'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailLine extends StatelessWidget {
+  const _DetailLine({required this.label, required this.value});
+  final String label, value;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SizedBox(width: 135, child: Text(label, style: const TextStyle(color: MizanTheme.muted, fontWeight: FontWeight.w700))),
+      const SizedBox(width: 10), Expanded(child: Text(value, textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.w900))),
+    ]),
+  );
+}
+
+PersonAccount _person(MizanState state, String id) => state.people.firstWhere((item) => item.id == id);
+
+Future<void> _confirmAction(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String confirmLabel,
+  required Future<void> Function() action,
+}) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: SingleChildScrollView(child: Text(message)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Vazgeç')),
+        FilledButton(style: FilledButton.styleFrom(backgroundColor: MizanTheme.red), onPressed: () => Navigator.pop(dialogContext, true), child: Text(confirmLabel)),
+      ],
+    ),
+  );
+  if (accepted == true) await action();
+}

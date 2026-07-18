@@ -1,0 +1,296 @@
+# LEFFERION PRIME - MIZAN 250+ Madde Kontrol Dokümanı
+
+Bu doküman, ana 240 maddelik şartnameye eklenen yeni gider kategori ve not gereksinimleriyle birlikte uygulama kontrol listesini takip etmek için kullanılır. Maddeler tek tek doğrulanabilir olmalıdır.
+
+## Çekirdek Kapsam
+
+001. Flutter APK projesi olacak.
+002. İlk aşamada imzasız release APK yeterli olacak.
+003. GitHub Actions üzerinden build alınabilecek.
+004. Uygulama adı `LEFFERION PRIME - MIZAN` olacak.
+005. Lefferion Prime logosu kullanılacak.
+006. Logo şeffaf PNG kaynağından gelecek.
+007. Logo responsive yerleşecek.
+008. Logo taşmayacak.
+009. Logo kesilmeyecek.
+010. Logo HD kalitede kullanılacak.
+011. Uygulama local veri mantığıyla çalışacak.
+012. Uygulama internete bağımlı olmayacak.
+013. Veriler cihaz içinde saklanacak.
+014. Ağır animasyon kullanılmayacak.
+015. RAM tüketimini artıracak gereksiz görsel efektlerden kaçınılacak.
+016. Kart tabanlı responsive arayüz kullanılacak.
+017. Küçük ekranda tablo kullanılmayacak.
+018. Büyük ekranda kartlar yan yana dizilebilecek.
+019. SafeArea kullanılacak.
+020. Scroll olmayan sıkışık ekran bırakılmayacak.
+
+## Banka ve Borç Kuralları
+
+021. Banka isimleri hazır liste olarak gelmeyecek.
+022. Gerçek banka marka adı örneği sabit yazılmayacak.
+023. Kullanıcı banka adını kendisi yazacak.
+024. Banka adı maksimum 100 karakter olacak.
+025. Uzun banka adı taşmadan kırılacak.
+026. Banka logosu kullanılmayacak.
+027. Bankalarla resmi bağlantı varmış gibi gösterilmeyecek.
+028. Aynı kişinin aynı banka adı altında birden fazla borç ürünü olabilecek.
+029. Banka toplamı alt ürünlerden hesaplanacak.
+030. Borç ürünü ödemesi başka ürünü etkilemeyecek.
+031. KMH hesabı ayrı ürün olarak tutulacak.
+032. Kredi kartı ayrı ürün olarak tutulacak.
+033. Kredi ayrı ürün olarak tutulacak.
+034. Araç kredisi ayrı tür seçilebilecek.
+035. Ev kredisi ayrı tür seçilebilecek.
+036. Nakit avans ayrı tür seçilebilecek.
+037. Taksitli nakit avans ayrı tür seçilebilecek.
+038. Özel borç türü eklenebilecek.
+039. Her borçta toplam borç olacak.
+040. Her borçta ödenen miktar hesaplanacak.
+041. Her borçta kalan borç otomatik hesaplanacak.
+042. Her borçta aylık tutar olacak.
+043. Her borçta son ödeme tarihi olacak.
+044. Her borçta durum hesaplanacak.
+045. Aktif durum etiketi olacak.
+046. Yaklaşan ödeme etiketi olacak.
+047. Gecikmede etiketi olacak.
+048. Tamamlandı etiketi olacak.
+049. Pasif etiketi olacak.
+050. Durum sadece renkle anlatılmayacak.
+051. Durum yazıyla da gösterilecek.
+052. Kısmi ödeme yapılabilecek.
+053. Kısmi ödeme kalan tutarı azaltacak.
+054. Kalan varsa bildirim devam edecek.
+055. Tam ödeme ilgili kaydı tamamlandı yapacak.
+056. Borç ödeme geçmişi kendi ürününde kalacak.
+057. Genel geçmiş olsa bile kaynak kayıt bağı korunacak.
+058. Tamamlanan borç arşivlenebilecek.
+059. Tamamlanan borç geçmişi silinmeyecek.
+060. Yanlış veri sonradan düzeltilebilecek.
+
+## Kişi, Fatura, Kira ve Taksit
+
+061. Birden fazla kişi oluşturulabilecek.
+062. Her kişinin ödeme alanı ayrı olacak.
+063. Kişi toplam borcu görülecek.
+064. Kişi aylık ödeme yükü görülecek.
+065. Kişi gecikmiş kayıt sayısı görülecek.
+066. Seçili kişiler birlikte raporlanabilecek.
+067. Faturalar ayrı kayıt tipi olacak.
+068. Elektrik faturası desteklenecek.
+069. Su faturası desteklenecek.
+070. Telefon faturası desteklenecek.
+071. İnternet faturası desteklenecek.
+072. Özel fatura desteklenecek.
+073. Faturada kurum adı olacak.
+074. Faturada abone numarası olacak.
+075. Faturada tesisat/sözleşme numarası olacak.
+076. Faturada tutar olacak.
+077. Faturada son ödeme tarihi olacak.
+078. Fatura durumu hesaplanacak.
+079. Fatura ödeme geçmişi kendi kaydında kalacak.
+080. Kira ayrı kayıt tipi olacak.
+081. Kirada tutar olacak.
+082. Kirada ödeme günü olacak.
+083. Kirada alıcı adı olacak.
+084. Kirada IBAN olacak.
+085. Kirada sözleşme başlangıcı tutulabilecek.
+086. Kirada sözleşme bitişi tutulabilecek.
+087. Kirada artış tarihi tutulabilecek.
+088. Kira ödeme geçmişi kendi kaydında kalacak.
+089. Taksit mantığı borç/kira alanında izlenebilecek.
+090. Fatura/kira/taksit gider toplamına karışmayacak.
+
+## Gider ve Kategori Kuralları
+
+091. Giderler ayrı modül olacak.
+092. Giderler borç toplamına karışmayacak.
+093. Giderler fatura toplamına karışmayacak.
+094. Giderler kira toplamına karışmayacak.
+095. Giderler kalem kalem girilebilecek.
+096. Giderlerde kategori olacak.
+097. Kullanıcı gider kategorisi oluşturabilecek.
+098. Kullanıcı kategori adını kendi belirleyecek.
+099. Kategori adı düzenlenebilecek.
+100. Kategori silinebilecek.
+101. Kategori silme tehlikeli işlem sayılacak.
+102. Kategori silmek için tam olarak `ONAYLIYORUM` yazılacak.
+103. Onay metni yanlışsa silme yapılmayacak.
+104. Kategori içinde kaç harcama olduğu gösterilecek.
+105. Kategori yanında toplam tutar gösterilecek.
+106. Kategori içinde detayları göster alanı olacak.
+107. Kategori detayında harcamalar listelenecek.
+108. Harcama ürün adı tutulacak.
+109. Harcama adet tutulacak.
+110. Harcama birim fiyat tutulacak.
+111. Harcama toplamı otomatik hesaplanacak.
+112. Harcama notu tutulabilecek.
+113. Harcama tarihi tutulacak.
+114. Günlük gider toplamı hesaplanacak.
+115. Aylık gider toplamı hesaplanacak.
+116. Ay değişince aktif ay yeni toplamla başlayacak.
+117. Eski ay gideri geçmişte korunacak.
+118. Son 30 gün filtre mantığı desteklenecek.
+119. Son 60 gün filtre mantığı desteklenecek.
+120. Son 90 gün filtre mantığı desteklenecek.
+121. Ay/yıl filtre mantığı desteklenecek.
+122. Gider silinirse toplam yeniden hesaplanacak.
+123. Kategori silinirse kategoriye bağlı veri riski kullanıcıya gösterilecek.
+124. Gider kategori ekranı kartları şişirmeyecek.
+125. Kategori detayları açılır kapanır yapıda olacak.
+
+## Not Sistemi
+
+126. Her banka borç ürünü detayında not ekle olacak.
+127. Her fatura detayında not ekle olacak.
+128. Her kira/taksit detayında not ekle olacak.
+129. Notlar ödeme notlarından ayrı tutulacak.
+130. Notlar fazla yer kaplamayacak.
+131. Notlar ayrı bir kompakt alanda gösterilecek.
+132. Kartlarda uzun notlar sürekli açık durmayacak.
+133. Detayda son notlar kısa görünecek.
+134. Fazla notlar saklı bilgi olarak kalacak.
+135. Not metni boş kaydedilmeyecek.
+136. Not karakter sınırı olacak.
+137. Not tarihi tutulacak.
+138. Notlar kaynak kayda bağlı kalacak.
+139. Borç notu fatura altında görünmeyecek.
+140. Fatura notu kira altında görünmeyecek.
+141. Kira notu banka borcu altında görünmeyecek.
+142. Not ekleme diğer modül verisini bozmayacak.
+143. Notlar local veriye kaydedilecek.
+144. Not alanı responsive olacak.
+145. Not alanı klavye açılınca bozulmayacak.
+
+## Bildirimler
+
+146. Gider bildirimi ayrı sistem olacak.
+147. Gider bildirimi ödeme bildirimiyle karışmayacak.
+148. Sabah gider bildirimi olacak.
+149. Öğlen gider bildirimi olacak.
+150. Akşam gider bildirimi olacak.
+151. Sabah varsayılan 07:00 olacak.
+152. Öğlen varsayılan 12:00 olacak.
+153. Akşam varsayılan 21:00 olacak.
+154. Her gider bildirimi aç/kapat yapılabilecek.
+155. Her gider bildirimi metni düzenlenebilecek.
+156. Ödeme bildirimi son tarihten 5 gün önce başlayacak.
+157. Ödeme bildirimi son ödeme günü dahil takip edecek.
+158. Gecikme sonrası 5 gün daha takip edecek.
+159. Bu aralıkta günde 2 bildirim mantığı olacak.
+160. Ödeme bildirimi kayıt bazlı olacak.
+161. Bir ödeme diğer bildirimi susturmayacak.
+162. Ödeme işaretlenmezse bildirim devam edecek.
+163. Bildirim izni istenecek.
+164. Varsayılan telefon bildirim sesi kullanılacak.
+165. Pil optimizasyonu uyarısı olacak.
+166. Telefon yeniden başlarsa bildirim tekrar planlanacak.
+167. Bildirimler ayarlardan kapatılabilecek.
+168. Bildirim kaçırmamak için kayıt bazlı motor tasarlanacak.
+169. Bildirim durumu ekranda anlaşılır gösterilecek.
+170. Bildirim ayarları veriye karışmayacak.
+
+## Arama, Filtre ve Rapor
+
+171. Arama olacak.
+172. Kişi filtresi olacak.
+173. Ay filtresi olacak.
+174. Gider kategorisi filtresi olacak.
+175. Borç türü filtresi olacak.
+176. Gecikmede filtresi olacak.
+177. Yaklaşan ödeme filtresi olacak.
+178. Raporlarda kişi toplamı olacak.
+179. Raporlarda banka adı toplamı olacak.
+180. Raporlarda borç türü toplamı olacak.
+181. Raporlarda fatura toplamı olacak.
+182. Raporlarda kira/taksit toplamı olacak.
+183. Raporlarda gider kategori toplamı olacak.
+184. Raporlarda aylık gider toplamı olacak.
+185. Raporlar kart ve bar yapısıyla gösterilecek.
+186. Raporlarda yazılar taşmayacak.
+187. Raporlarda renk ve yazı birlikte kullanılacak.
+188. PDF/CSV dışa aktarma opsiyonel değerlendirilecek.
+189. Yedekleme opsiyonel değerlendirilecek.
+190. PIN/şifre opsiyonel değerlendirilecek.
+
+## Form, Validasyon ve Responsive
+
+191. Tüm zorunlu alanlar boş geçilemeyecek.
+192. Tutar alanları sayı/para formatı alacak.
+193. Tarih alanları date picker ile seçilecek.
+194. Saat alanları time picker ile seçilecek.
+195. Yanlış veri girişinde net uyarı olacak.
+196. Uzun açıklamalar satır kıracak.
+197. Klavye açıldığında ekran scroll olacak.
+198. Alt menü taşmayacak.
+199. Tablet görünümü desteklenecek.
+200. Yatay ekran desteklenecek.
+201. Font büyütme düzeni bozmamalı.
+202. Kartlar iç içe gereksiz kullanılmayacak.
+203. Butonlar ekran dışına taşmayacak.
+204. Liste satırları sağa sola kaymayacak.
+205. Hizalama profesyonel olacak.
+206. Yazılar kart ortasında anlamsız kalmayacak.
+207. Değerler okunur hizalanacak.
+208. Detay ekranları bottom sheet veya ayrı sayfa olarak düzenli olacak.
+209. Notlar detay alanında kompakt duracak.
+210. Silme işlemleri yanlış dokunmayla yapılmayacak.
+
+## Veri Güvenliği ve Ayrışma
+
+211. Hiçbir modül başka modülün verisini sıfırlamayacak.
+212. Kişi güncellenirken fatura/kira korunacak.
+213. Borç ödemesi giderleri etkilemeyecek.
+214. Gider ekleme borçları etkilemeyecek.
+215. Kategori işlemi kişi borçlarını etkilemeyecek.
+216. Not ekleme ödeme geçmişini bozmayacak.
+217. Ödeme geçmişi kaynak kayda bağlı kalacak.
+218. Local JSON bozulursa demo/veri kurtarma yolu olacak.
+219. Veri kaydı atomik mantıkla yapılacak.
+220. Aynı isimli kategori uyarı verecek.
+221. Aynı banka adı tekrarında kullanıcı uyarılabilecek.
+222. Karakter sınırları uygulanacak.
+223. Banka adı 100 karakteri aşmayacak.
+224. Kategori adı 60 karakteri aşmayacak.
+225. Not 240 karakteri aşmayacak.
+
+## Build ve Teslim
+
+226. `flutter pub get` çalışacak.
+227. `flutter analyze` çalışacak.
+228. `flutter test` çalışacak.
+229. Release APK build alınacak.
+230. APK artifact olarak yüklenecek.
+231. Launcher icon üretilecek.
+232. Android uygulama adı doğru uygulanacak.
+233. GitHub Actions manuel çalıştırılabilecek.
+234. Ana branch push ile build tetiklenecek.
+235. Testler hesaplama doğruluğunu kontrol edecek.
+236. Testler kategori toplamını kontrol edecek.
+237. Testler banka marka adının sabit gelmediğini kontrol edecek.
+238. Testler notların kaynak kayda bağlı olduğunu kontrol edecek.
+239. Testler kategori silme onay şartını kontrol edecek.
+240. Testler veri modüllerinin birbirini silmediğini kontrol edecek.
+
+## Kabul Kontrolü
+
+241. Ana panel kritik ödemeleri gösterecek.
+242. Ana panel fatura/kira yaklaşanlarını da gösterecek.
+243. Kişiler ekranı kişi bazlı özet gösterecek.
+244. Banka grubu kullanıcı yazımı olduğunu belirtecek.
+245. Fatura detayında not eklenebilecek.
+246. Kira detayında not eklenebilecek.
+247. Banka borç detayında not eklenebilecek.
+248. Gider ekranı kategori toplamlarını gösterecek.
+249. Gider detayları kategori altında görünecek.
+250. Kategori silme onayı `ONAYLIYORUM` dışında çalışmayacak.
+251. Rapor ekranı fatura ve kira/taksit toplamlarını gösterecek.
+252. Ayarlar ekranı bildirim saatlerini gösterecek.
+253. Uygulama görsel olarak sade, hizalı ve profesyonel olacak.
+254. Uygulama düşük RAM hedefiyle basit widget ağacı kullanacak.
+255. Repo içinde kalite kontrol dokümanı bulunacak.
+256. Repo içinde otomatik smoke validation scripti bulunacak.
+257. v93 zip yalnızca logo kaynağı olarak kullanılacak.
+258. v93 site yapısı Mizan uygulamasına karıştırılmayacak.
+259. Kullanıcı cevap vermese de batch akışı sürdürülebilecek.
+260. Nihai kabul: responsive, taşmasız, doğru hesaplayan, kayıtları karıştırmayan, bildirimleri doğru çalışan APK.

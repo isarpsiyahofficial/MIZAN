@@ -1,0 +1,299 @@
+import 'package:flutter/material.dart';
+
+import '../controllers/mizan_controller.dart';
+import '../core/formatters.dart';
+import '../core/theme.dart';
+import '../models/mizan_models.dart';
+import '../widgets/mizan_cards.dart';
+import '../widgets/record_notes_panel.dart';
+import 'record_form_dialogs.dart';
+
+class PeopleScreen extends StatefulWidget {
+  const PeopleScreen({required this.controller, super.key});
+  final MizanController controller;
+  @override
+  State<PeopleScreen> createState() => _PeopleScreenState();
+}
+
+class _PeopleScreenState extends State<PeopleScreen> {
+  String query = '';
+  PaymentStatus? statusFilter;
+  bool includeArchived = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final people = widget.controller.state.people.where(_matches).toList();
+    final padding = MediaQuery.sizeOf(context).width < 380 ? 12.0 : 18.0;
+    return ListView(
+      key: const PageStorageKey('people'),
+      padding: EdgeInsets.fromLTRB(padding, 18, padding, 100),
+      children: [
+        PageHeader(
+          title: 'Kişiler ve ödemeler',
+          subtitle: 'Her kişinin banka, borç, fatura, kira, not ve ödeme geçmişi ayrı tutulur',
+          action: FilledButton.icon(
+            onPressed: () => showPersonForm(context: context, controller: widget.controller),
+            icon: const Icon(Icons.person_add_alt_1),
+            label: const Text('Kişi ekle'),
+          ),
+        ),
+        const SizedBox(height: 18),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final filters = [
+              TextField(
+                onChanged: (value) => setState(() => query = value),
+                decoration: const InputDecoration(prefixIcon: Icon(Icons.search), labelText: 'Ara', hintText: 'Kişi, banka, borç, fatura, kira'),
+              ),
+              DropdownButtonFormField<PaymentStatus?>(
+                initialValue: statusFilter,
+                decoration: const InputDecoration(labelText: 'Durum filtresi'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Tüm durumlar')),
+                  for (final status in PaymentStatus.values) DropdownMenuItem(value: status, child: Text(status.label)),
+                ],
+                onChanged: (value) => setState(() => statusFilter = value),
+              ),
+            ];
+            if (constraints.maxWidth < 660 || MediaQuery.textScalerOf(context).scale(1) > 1.25) {
+              return Column(children: [filters[0], const SizedBox(height: 12), filters[1]]);
+            }
+            return Row(children: [Expanded(flex: 2, child: filters[0]), const SizedBox(width: 12), Expanded(child: filters[1])]);
+          },
+        ),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: includeArchived,
+          onChanged: (value) => setState(() => includeArchived = value),
+          title: const Text('Arşivlenmiş kayıtları göster', style: TextStyle(fontWeight: FontWeight.w800)),
+        ),
+        const SizedBox(height: 8),
+        if (people.isEmpty)
+          const EmptyState(title: 'Kayıt bulunamadı', message: 'Arama veya filtreyi değiştir ya da yeni bir kişi ekle.')
+        else
+          for (final person in people) ...[
+            _PersonCard(controller: widget.controller, person: person, includeArchived: includeArchived),
+            const SizedBox(height: 14),
+          ],
+      ],
+    );
+  }
+
+  bool _matches(PersonAccount person) {
+    final clean = query.trim().toLowerCase();
+    final fields = <String>[
+      person.name,
+      for (final bank in person.banks) bank.userWrittenName,
+      for (final bank in person.banks) for (final debt in bank.products) ...[debt.title, debt.displayKind, debt.description],
+      for (final bill in person.bills) ...[bill.kind.label, bill.institutionName, bill.description],
+      for (final rent in person.rents) ...[rent.title, rent.receiverName, rent.description],
+    ];
+    final queryMatches = clean.isEmpty || fields.any((value) => value.toLowerCase().contains(clean));
+    if (!queryMatches || statusFilter == null) return queryMatches;
+    return person.banks.expand((bank) => bank.products).any((item) => item.status == statusFilter) ||
+        person.bills.any((item) => item.status == statusFilter) ||
+        person.rents.any((item) => item.status == statusFilter);
+  }
+}
+
+class _PersonCard extends StatelessWidget {
+  const _PersonCard({required this.controller, required this.person, required this.includeArchived});
+  final MizanController controller;
+  final PersonAccount person;
+  final bool includeArchived;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(person.name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 4),
+                      Text('Toplam ${money(person.totalDebt)} · Gecikmiş ${person.overdueCountAt(now)} kayıt', style: const TextStyle(color: MizanTheme.muted, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Kişi işlemleri',
+                  onSelected: (value) async {
+                    if (value == 'edit') {
+                      await showPersonForm(context: context, controller: controller, person: person);
+                    } else if (value == 'delete') {
+                      await _confirmAction(
+                        context,
+                        title: 'Kişiyi sil',
+                        message: '${person.name} ve bu kişiye bağlı tüm banka, borç, fatura, kira, ödeme ve not kayıtları silinecek.',
+                        confirmLabel: 'Kişiyi sil',
+                        action: () => controller.deletePerson(person.id),
+                      );
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Düzenle'))),
+                    PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, color: MizanTheme.red), title: Text('Sil'))),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            AdaptiveGrid(
+              minTileWidth: 180,
+              children: [
+                MetricCard(label: 'Kişi toplamı', value: money(person.totalDebt), color: MizanTheme.ink),
+                MetricCard(label: 'Bu ay yük', value: money(person.monthlyLoadFor(now)), color: MizanTheme.blue),
+                MetricCard(label: 'Gecikmiş', value: person.overdueCountAt(now).toString(), color: MizanTheme.red),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(onPressed: () => showBankForm(context: context, controller: controller, person: person), icon: const Icon(Icons.account_balance_outlined), label: const Text('Banka ekle')),
+                FilledButton.tonalIcon(onPressed: () => showBillForm(context: context, controller: controller, person: person), icon: const Icon(Icons.receipt_long_outlined), label: const Text('Fatura ekle')),
+                FilledButton.tonalIcon(onPressed: () => showRentForm(context: context, controller: controller, person: person), icon: const Icon(Icons.home_work_outlined), label: const Text('Kira / taksit ekle')),
+              ],
+            ),
+            if (person.banks.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const SectionTitle('Banka grupları', subtitle: 'Banka adları yalnızca kullanıcı tarafından yazılır'),
+              const SizedBox(height: 8),
+              for (final bank in person.banks) _BankSection(controller: controller, person: person, bank: bank, includeArchived: includeArchived),
+            ],
+            if (person.bills.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const SectionTitle('Faturalar'),
+              const SizedBox(height: 8),
+              for (final bill in person.bills.where((item) => includeArchived || !item.isArchived)) ...[
+                MizanListCard(
+                  title: '${bill.kind.label} · ${bill.institutionName}',
+                  subtitle: 'Kalan ${money(bill.remainingAmount)} · Son ödeme ${shortDate(bill.dueDate)}',
+                  leadingColor: statusColor(bill.status),
+                  icon: Icons.receipt_long_outlined,
+                  trailing: StatusChip(status: bill.status),
+                  onTap: () => _showBillDetail(context, controller, person.id, bill.id),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ],
+            if (person.rents.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const SectionTitle('Kira / taksit'),
+              const SizedBox(height: 8),
+              for (final rent in person.rents.where((item) => includeArchived || !item.isArchived)) ...[
+                MizanListCard(
+                  title: rent.title,
+                  subtitle: '${rent.receiverName} · Kalan ${money(rent.remainingAmount)} · Son ödeme ${shortDate(rent.dueDate)}',
+                  leadingColor: statusColor(rent.status),
+                  icon: Icons.home_work_outlined,
+                  trailing: StatusChip(status: rent.status),
+                  onTap: () => _showRentDetail(context, controller, person.id, rent.id),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BankSection extends StatelessWidget {
+  const _BankSection({required this.controller, required this.person, required this.bank, required this.includeArchived});
+  final MizanController controller;
+  final PersonAccount person;
+  final BankGroup bank;
+  final bool includeArchived;
+
+  @override
+  Widget build(BuildContext context) {
+    final products = bank.products.where((item) => includeArchived || !item.isArchived).toList();
+    return ExpansionTile(
+      key: PageStorageKey('bank-${bank.id}'),
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      title: Text(bank.userWrittenName, softWrap: true, style: const TextStyle(fontWeight: FontWeight.w900)),
+      subtitle: Text('${bank.products.length} borç ürünü · Kalan ${money(bank.totalDebt)}'),
+      trailing: PopupMenuButton<String>(
+        tooltip: 'Banka grubu işlemleri',
+        onSelected: (value) async {
+          if (value == 'add') {
+            await showDebtForm(context: context, controller: controller, person: person, bank: bank);
+          } else if (value == 'edit') {
+            await showBankForm(context: context, controller: controller, person: person, bank: bank);
+          } else if (value == 'delete') {
+            await _confirmAction(
+              context,
+              title: 'Banka grubunu sil',
+              message: '${bank.userWrittenName} altındaki ${bank.products.length} borç ürünü, ödeme ve not geçmişleriyle birlikte silinecek.',
+              confirmLabel: 'Grubu sil',
+              action: () => controller.deleteBankGroup(personId: person.id, bankId: bank.id),
+            );
+          }
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'add', child: ListTile(leading: Icon(Icons.add_card), title: Text('Borç ürünü ekle'))),
+          PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Banka adını düzenle'))),
+          PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, color: MizanTheme.red), title: Text('Grubu sil'))),
+        ],
+      ),
+      children: [
+        if (products.isEmpty)
+          const EmptyState(title: 'Gösterilecek borç ürünü yok', message: 'Yeni ürün ekleyebilir veya arşiv görünümünü açabilirsin.'),
+        for (final debt in products) ...[
+          MizanListCard(
+            title: debt.title,
+            subtitle: '${debt.displayKind} · Kalan ${money(debt.remainingAmount)} · Aylık ${money(debt.monthlyAmount)}\nSon ödeme ${shortDate(debt.dueDate)}',
+            leadingColor: statusColor(debt.status),
+            icon: Icons.credit_card_outlined,
+            trailing: StatusChip(status: debt.status),
+            onTap: () => _showDebtDetail(context, controller, person.id, bank.id, debt.id),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+}
+
+void _showDebtDetail(BuildContext context, MizanController controller, String personId, String bankId, String debtId) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => AnimatedBuilder(
+      animation: controller,
+      builder: (sheetContext, __) {
+        final person = _person(controller.state, personId);
+        final bank = person.banks.firstWhere((item) => item.id == bankId);
+        final debt = bank.products.firstWhere((item) => item.id == debtId);
+        return _RecordSheet(
+          title: debt.title,
+          subtitle: '${bank.userWrittenName} · ${debt.displayKind}',
+          status: debt.status,
+          total: debt.totalAmount,
+          remaining: debt.remainingAmount,
+          dueDate: debt.dueDate,
+          description: debt.description,
+          payments: debt.payments,
+          notes: debt.notes,
+          detailRows: [
+            ('Aylık tutar', money(debt.monthlyAmount)),
+            if (debt.installmentCount != null) ('Taksit', '${debt.currentInstallment ?? 0}/${debt.installmentCount}'),
+            if (debt.limit != null) ('Limit', money(debt.limit!)),
+            if (debt.usedLimit != null) ('Kullanılan limit', money(debt.usedLimit!)),
+          ],
+          onAddPayment: debt.remainingAmount > 0 ? () => showPaymentForm(context: sheetContext, controller: controller, personId: personId, type: RecordType.debt, sourceId: debtId, remainingAmount: debt.remainingAmount) : null,
+          onEditPayment: (payment) => showPaymentForm(context: sheetContext, controller: controller, personId: personId, type: RecordType.debt, sourceId: debtId, remainingAmount: debt.remainingAmount + payment.amount, payment: payment),

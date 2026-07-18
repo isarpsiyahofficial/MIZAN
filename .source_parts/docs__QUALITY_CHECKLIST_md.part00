@@ -1,0 +1,21 @@
+# Mizan Kalite Kontrol Listesi
+
+- [ ] Banka adları uygulamada hazır marka olarak gelmiyor.
+- [ ] Banka adını kullanıcı input ile yazıyor.
+- [ ] Banka logosu veya resmi banka temsili yok.
+- [ ] Veriler local saklanıyor.
+- [ ] Kişi bazlı borç toplamı doğru.
+- [ ] Banka grubu altında birden fazla borç ürünü tutuluyor.
+- [ ] Borç ürünü ödeme geçmişi yalnızca kendi detayında görünüyor.
+- [ ] Kısmi ödeme kalan tutarı doğru güncelliyor.
+- [ ] Tam ödeme ilgili bildirimi susturacak şekilde işaretleniyor.
+- [ ] Gider kategorisi oluşturulabiliyor.
+- [ ] Gider kategori adı düzenlenebiliyor.
+- [ ] Kategori detayında kategoriye ait harcamalar görünüyor.
+- [ ] Kategori silme için `ONAYLIYORUM` şartı aranıyor.
+- [ ] Kategori silme başka modül verisini bozmuyor.
+- [ ] Küçük ekranda kart yapısı kullanılıyor.
+- [ ] Büyük ekranda kartlar yan yana dizilebiliyor.
+- [ ] Alt menü taşmıyor.
+- [ ] Logo HD ve şeffaf PNG kaynağından geliyor.
+- [ ] GitHub Actions APK artifact üretiyor.

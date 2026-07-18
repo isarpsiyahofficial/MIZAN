@@ -1,0 +1,76 @@
+name: Android quality and unsigned release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+
+jobs:
+  quality-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Print toolchain
+        run: flutter --version
+
+      - name: Generate Android platform deterministically
+        run: flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+
+      - name: Configure Android notifications and display name
+        run: python3 tools/configure_android.py
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Format and parse Dart sources
+        run: dart format lib test
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Static analysis
+        run: flutter analyze --fatal-infos
+
+      - name: Requirement smoke validation
+        run: python3 tools/validate_project.py
+
+      - name: Unit and responsive widget tests
+        run: flutter test --reporter expanded
+
+      - name: Build unsigned release APK
+        run: flutter build apk --release
+
+      - name: Verify APK exists and is non-empty
+        run: test -s build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-unsigned-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30

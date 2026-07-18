@@ -1,0 +1,409 @@
+          return person.copyWith(
+            banks: person.banks
+                .map((item) => item.id == bank.id
+                    ? item.copyWith(
+                        products: item.products
+                            .map((product) => product.id == sourceId
+                                ? product.copyWith(notes: [note, ...product.notes])
+                                : product)
+                            .toList(),
+                      )
+                    : item)
+                .toList(),
+          );
+        }
+        throw ArgumentError('Borç kaydı bulunamadı.');
+      case RecordType.bill:
+        _bill(person, sourceId);
+        return person.copyWith(
+          bills: person.bills
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(notes: [note, ...item.notes])
+                  : item)
+              .toList(),
+        );
+      case RecordType.rent:
+        _rent(person, sourceId);
+        return person.copyWith(
+          rents: person.rents
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(notes: [note, ...item.notes])
+                  : item)
+              .toList(),
+        );
+    }
+    throw ArgumentError('Not kaynağı bulunamadı.');
+  }
+
+  PersonAccount _personWithoutNote(
+    PersonAccount person,
+    RecordType type,
+    String sourceId,
+    String noteId,
+  ) {
+    switch (type) {
+      case RecordType.debt:
+        for (final bank in person.banks) {
+          if (!bank.products.any((item) => item.id == sourceId)) continue;
+          return person.copyWith(
+            banks: person.banks
+                .map((item) => item.id == bank.id
+                    ? item.copyWith(
+                        products: item.products
+                            .map((product) => product.id == sourceId
+                                ? product.copyWith(
+                                    notes: product.notes
+                                        .where((note) => note.id != noteId)
+                                        .toList(),
+                                  )
+                                : product)
+                            .toList(),
+                      )
+                    : item)
+                .toList(),
+          );
+        }
+        throw ArgumentError('Borç kaydı bulunamadı.');
+      case RecordType.bill:
+        _bill(person, sourceId);
+        return person.copyWith(
+          bills: person.bills
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(
+                      notes: item.notes.where((note) => note.id != noteId).toList(),
+                    )
+                  : item)
+              .toList(),
+        );
+      case RecordType.rent:
+        _rent(person, sourceId);
+        return person.copyWith(
+          rents: person.rents
+              .map((item) => item.id == sourceId
+                  ? item.copyWith(
+                      notes: item.notes.where((note) => note.id != noteId).toList(),
+                    )
+                  : item)
+              .toList(),
+        );
+    }
+    throw ArgumentError('Not kaynağı bulunamadı.');
+  }
+
+  DebtProduct _buildDebt({
+    required String id,
+    required DebtKind kind,
+    required String title,
+    required double totalAmount,
+    required double monthlyAmount,
+    required DateTime dueDate,
+    String customKindName = '',
+    int? installmentCount,
+    int? currentInstallment,
+    double? limit,
+    double? usedLimit,
+    String description = '',
+    bool isArchived = false,
+    List<PaymentRecord> payments = const [],
+    List<RecordNote> notes = const [],
+  }) {
+    final cleanTitle = _requiredText(title, 'Borç başlığı', 100);
+    _positiveAmount(totalAmount, 'Toplam borç');
+    _nonNegativeAmount(monthlyAmount, 'Aylık tutar');
+    if (kind == DebtKind.custom) {
+      _requiredText(customKindName, 'Özel borç türü', 60);
+    }
+    _validateInstallments(installmentCount, currentInstallment);
+    if (limit != null) _nonNegativeAmount(limit, 'Limit');
+    if (usedLimit != null) _nonNegativeAmount(usedLimit, 'Kullanılan limit');
+    if (limit != null && usedLimit != null && usedLimit > limit) {
+      throw ArgumentError('Kullanılan limit toplam limiti aşamaz.');
+    }
+    return DebtProduct(
+      id: id,
+      kind: kind,
+      title: cleanTitle,
+      customKindName: _optionalText(customKindName, 'Özel borç türü', 60),
+      totalAmount: totalAmount,
+      monthlyAmount: monthlyAmount,
+      dueDate: dateOnly(dueDate),
+      installmentCount: installmentCount,
+      currentInstallment: currentInstallment,
+      limit: limit,
+      usedLimit: usedLimit,
+      description: _optionalText(description, 'Açıklama', 240),
+      isArchived: isArchived,
+      payments: payments,
+      notes: notes,
+    );
+  }
+
+  BillEntry _buildBill({
+    required String id,
+    required BillKind kind,
+    required String institutionName,
+    required double amount,
+    required DateTime dueDate,
+    String subscriberNumber = '',
+    String contractNumber = '',
+    String description = '',
+    bool isArchived = false,
+    List<PaymentRecord> payments = const [],
+    List<RecordNote> notes = const [],
+  }) {
+    _positiveAmount(amount, 'Fatura tutarı');
+    return BillEntry(
+      id: id,
+      kind: kind,
+      institutionName: _requiredText(institutionName, 'Kurum adı', 100),
+      subscriberNumber: _optionalText(subscriberNumber, 'Abone numarası', 60),
+      contractNumber: _optionalText(contractNumber, 'Sözleşme numarası', 60),
+      amount: amount,
+      dueDate: dateOnly(dueDate),
+      description: _optionalText(description, 'Açıklama', 240),
+      isArchived: isArchived,
+      payments: payments,
+      notes: notes,
+    );
+  }
+
+  RentEntry _buildRent({
+    required String id,
+    required String title,
+    required double amount,
+    required int paymentDay,
+    required String receiverName,
+    required DateTime dueDate,
+    String iban = '',
+    DateTime? contractStart,
+    DateTime? contractEnd,
+    DateTime? increaseDate,
+    int? installmentCount,
+    int? currentInstallment,
+    String description = '',
+    bool isArchived = false,
+    List<PaymentRecord> payments = const [],
+    List<RecordNote> notes = const [],
+  }) {
+    _positiveAmount(amount, 'Kira/taksit tutarı');
+    if (paymentDay < 1 || paymentDay > 31) {
+      throw ArgumentError('Ödeme günü 1 ile 31 arasında olmalı.');
+    }
+    _validateInstallments(installmentCount, currentInstallment);
+    if (contractStart != null &&
+        contractEnd != null &&
+        contractEnd.isBefore(contractStart)) {
+      throw ArgumentError('Sözleşme bitişi başlangıçtan önce olamaz.');
+    }
+    return RentEntry(
+      id: id,
+      title: _requiredText(title, 'Kira/taksit başlığı', 100),
+      amount: amount,
+      paymentDay: paymentDay,
+      receiverName: _requiredText(receiverName, 'Alıcı adı', 100),
+      iban: _optionalText(iban, 'IBAN', 40),
+      dueDate: dateOnly(dueDate),
+      contractStart: contractStart == null ? null : dateOnly(contractStart),
+      contractEnd: contractEnd == null ? null : dateOnly(contractEnd),
+      increaseDate: increaseDate == null ? null : dateOnly(increaseDate),
+      installmentCount: installmentCount,
+      currentInstallment: currentInstallment,
+      description: _optionalText(description, 'Açıklama', 240),
+      isArchived: isArchived,
+      payments: payments,
+      notes: notes,
+    );
+  }
+
+  ExpenseItem _buildExpense({
+    required String id,
+    required String categoryId,
+    required String name,
+    required double quantity,
+    required double unitPrice,
+    required DateTime spentAt,
+    String note = '',
+  }) {
+    _positiveAmount(quantity, 'Adet');
+    _nonNegativeAmount(unitPrice, 'Birim fiyat');
+    return ExpenseItem(
+      id: id,
+      categoryId: categoryId,
+      name: _requiredText(name, 'Gider adı', 100),
+      quantity: quantity,
+      unitPrice: unitPrice,
+      spentAt: dateOnly(spentAt),
+      note: _optionalText(note, 'Gider notu', 240),
+    );
+  }
+
+  void _validateState(MizanState state) {
+    final ids = <String>{};
+    void addId(String id, String type) {
+      if (id.trim().isEmpty || !ids.add(id)) {
+        throw StateError('$type kayıt kimliği geçersiz veya tekrarlı.');
+      }
+    }
+
+    for (final person in state.people) {
+      addId(person.id, 'Kişi');
+      _requiredText(person.name, 'Kişi adı', 80);
+      for (final bank in person.banks) {
+        addId(bank.id, 'Banka');
+        _requiredText(bank.userWrittenName, 'Banka adı', 100);
+        for (final debt in bank.products) {
+          addId(debt.id, 'Borç');
+          if (debt.paidAmount > debt.totalAmount + 0.001) {
+            throw StateError('Bir borç kaydında ödeme toplamı borcu aşıyor.');
+          }
+          for (final payment in debt.payments) {
+            addId(payment.id, 'Ödeme');
+          }
+          for (final note in debt.notes) {
+            addId(note.id, 'Not');
+          }
+        }
+      }
+      for (final bill in person.bills) {
+        addId(bill.id, 'Fatura');
+        if (bill.paidAmount > bill.amount + 0.001) {
+          throw StateError('Bir fatura kaydında ödeme toplamı tutarı aşıyor.');
+        }
+        for (final payment in bill.payments) {
+          addId(payment.id, 'Ödeme');
+        }
+        for (final note in bill.notes) {
+          addId(note.id, 'Not');
+        }
+      }
+      for (final rent in person.rents) {
+        addId(rent.id, 'Kira');
+        if (rent.paidAmount > rent.amount + 0.001) {
+          throw StateError('Bir kira kaydında ödeme toplamı tutarı aşıyor.');
+        }
+        for (final payment in rent.payments) {
+          addId(payment.id, 'Ödeme');
+        }
+        for (final note in rent.notes) {
+          addId(note.id, 'Not');
+        }
+      }
+    }
+    final categoryIds = <String>{};
+    for (final category in state.expenseCategories) {
+      addId(category.id, 'Kategori');
+      categoryIds.add(category.id);
+    }
+    for (final expense in state.expenses) {
+      addId(expense.id, 'Gider');
+      if (!categoryIds.contains(expense.categoryId)) {
+        throw StateError('Bir gider kaydı bulunmayan kategoriye bağlı.');
+      }
+    }
+  }
+
+  PersonAccount _person(String id) => _state.people.firstWhere(
+        (item) => item.id == id,
+        orElse: () => throw ArgumentError('Kişi bulunamadı.'),
+      );
+
+  BankGroup _bank(PersonAccount person, String id) => person.banks.firstWhere(
+        (item) => item.id == id,
+        orElse: () => throw ArgumentError('Banka kaydı bulunamadı.'),
+      );
+
+  DebtProduct _debt(BankGroup bank, String id) => bank.products.firstWhere(
+        (item) => item.id == id,
+        orElse: () => throw ArgumentError('Borç kaydı bulunamadı.'),
+      );
+
+  BillEntry _bill(PersonAccount person, String id) => person.bills.firstWhere(
+        (item) => item.id == id,
+        orElse: () => throw ArgumentError('Fatura kaydı bulunamadı.'),
+      );
+
+  RentEntry _rent(PersonAccount person, String id) => person.rents.firstWhere(
+        (item) => item.id == id,
+        orElse: () => throw ArgumentError('Kira/taksit kaydı bulunamadı.'),
+      );
+
+  ExpenseCategory _category(String id) => _state.expenseCategories.firstWhere(
+        (item) => item.id == id,
+        orElse: () => throw ArgumentError('Gider kategorisi bulunamadı.'),
+      );
+
+  ExpenseItem _expense(String id) => _state.expenses.firstWhere(
+        (item) => item.id == id,
+        orElse: () => throw ArgumentError('Gider kaydı bulunamadı.'),
+      );
+
+  void _ensureUniqueBankName(
+    PersonAccount person,
+    String name, {
+    String? excludingId,
+  }) {
+    final normalized = name.toLowerCase();
+    if (person.banks.any((bank) =>
+        bank.id != excludingId && bank.userWrittenName.toLowerCase() == normalized)) {
+      throw ArgumentError('Bu kişide aynı banka adı zaten var.');
+    }
+  }
+
+  void _ensureUniqueCategoryName(String name, {String? excludingId}) {
+    final normalized = name.toLowerCase();
+    if (_state.expenseCategories.any((category) =>
+        category.id != excludingId && category.name.toLowerCase() == normalized)) {
+      throw ArgumentError('Bu kategori adı zaten kullanılıyor.');
+    }
+  }
+
+  String _requiredText(String value, String label, int maxLength) {
+    final clean = value.trim();
+    if (clean.isEmpty) throw ArgumentError('$label boş bırakılamaz.');
+    if (clean.length > maxLength) {
+      throw ArgumentError('$label en fazla $maxLength karakter olabilir.');
+    }
+    return clean;
+  }
+
+  String _optionalText(String value, String label, int maxLength) {
+    final clean = value.trim();
+    if (clean.length > maxLength) {
+      throw ArgumentError('$label en fazla $maxLength karakter olabilir.');
+    }
+    return clean;
+  }
+
+  void _positiveAmount(double value, String label) {
+    if (!value.isFinite || value <= 0) {
+      throw ArgumentError('$label sıfırdan büyük olmalı.');
+    }
+  }
+
+  void _nonNegativeAmount(double value, String label) {
+    if (!value.isFinite || value < 0) {
+      throw ArgumentError('$label negatif olamaz.');
+    }
+  }
+
+  void _validateInstallments(int? total, int? current) {
+    if (total != null && total <= 0) {
+      throw ArgumentError('Toplam taksit pozitif olmalı.');
+    }
+    if (current != null && current <= 0) {
+      throw ArgumentError('Mevcut taksit pozitif olmalı.');
+    }
+    if (total != null && current != null && current > total) {
+      throw ArgumentError('Mevcut taksit toplam taksiti aşamaz.');
+    }
+  }
+
+  String _friendlyError(Object error) {
+    return error
+        .toString()
+        .replaceFirst('Invalid argument(s): ', '')
+        .replaceFirst('Bad state: ', '')
+        .replaceFirst('FormatException: ', '')
+        .replaceFirst('FileSystemException: ', '');
+  }
+}

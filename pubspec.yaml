@@ -1,0 +1,35 @@
+name: lefferion_prime_mizan
+description: LEFFERION PRIME - MIZAN kişisel borç, ödeme ve gider takip uygulaması.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.12.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  android_intent_plus: ^5.3.1
+  flutter_local_notifications: ^22.0.1
+  flutter_timezone: ^5.1.0
+  path_provider: ^2.1.6
+  timezone: ^0.11.1
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/lefferion-prime-logo.png
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/brand/lefferion-prime-logo.png
+  adaptive_icon_foreground: assets/brand/lefferion-prime-logo.png
+  adaptive_icon_background: "#F7FAFD"
+  min_sdk_android: 24

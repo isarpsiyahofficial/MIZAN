@@ -1,0 +1,527 @@
+const int currentSchemaVersion = 3;
+
+DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+
+int _daysUntil(DateTime dueDate, DateTime reference) =>
+    _dateOnly(dueDate).difference(_dateOnly(reference)).inDays;
+
+double _safeAmount(num? value) {
+  final parsed = value?.toDouble() ?? 0;
+  if (!parsed.isFinite || parsed < 0) {
+    return 0;
+  }
+  return double.parse(parsed.toStringAsFixed(2));
+}
+
+String _string(dynamic value, {String fallback = ''}) =>
+    value is String ? value : fallback;
+
+int? _intOrNull(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+DateTime _date(dynamic value, {DateTime? fallback}) {
+  if (value is DateTime) return value;
+  if (value is String) {
+    final parsed = DateTime.tryParse(value);
+    if (parsed != null) return parsed;
+  }
+  return fallback ?? DateTime.now();
+}
+
+DateTime? _dateOrNull(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
+}
+
+enum PaymentStatus {
+  active('Aktif'),
+  upcoming('Yaklaşıyor'),
+  overdue('Gecikmede'),
+  completed('Tamamlandı'),
+  passive('Pasif');
+
+  const PaymentStatus(this.label);
+  final String label;
+}
+
+enum DebtKind {
+  overdraft('KMH hesabı'),
+  creditCard('Kredi kartı'),
+  loan('Kredi'),
+  vehicleLoan('Araç kredisi'),
+  mortgage('Ev kredisi'),
+  cashAdvance('Nakit avans'),
+  installmentCashAdvance('Taksitli nakit avans'),
+  custom('Özel borç türü');
+
+  const DebtKind(this.label);
+  final String label;
+}
+
+enum BillKind {
+  electricity('Elektrik'),
+  water('Su'),
+  phone('Telefon'),
+  internet('İnternet'),
+  naturalGas('Doğalgaz'),
+  custom('Özel fatura');
+
+  const BillKind(this.label);
+  final String label;
+}
+
+enum RecordType {
+  debt('Borç'),
+  bill('Fatura'),
+  rent('Kira / taksit');
+
+  const RecordType(this.label);
+  final String label;
+}
+
+class PaymentRecord {
+  const PaymentRecord({
+    required this.id,
+    required this.amount,
+    required this.paidAt,
+    this.note = '',
+    this.method = '',
+  });
+
+  final String id;
+  final double amount;
+  final DateTime paidAt;
+  final String note;
+  final String method;
+
+  PaymentRecord copyWith({
+    double? amount,
+    DateTime? paidAt,
+    String? note,
+    String? method,
+  }) {
+    return PaymentRecord(
+      id: id,
+      amount: amount ?? this.amount,
+      paidAt: paidAt ?? this.paidAt,
+      note: note ?? this.note,
+      method: method ?? this.method,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'amount': amount,
+        'paidAt': paidAt.toIso8601String(),
+        'note': note,
+        'method': method,
+      };
+
+  factory PaymentRecord.fromJson(Map<String, dynamic> json) {
+    return PaymentRecord(
+      id: _string(json['id']),
+      amount: _safeAmount(json['amount'] as num?),
+      paidAt: _date(json['paidAt']),
+      note: _string(json['note']),
+      method: _string(json['method']),
+    );
+  }
+}
+
+class RecordNote {
+  const RecordNote({
+    required this.id,
+    required this.text,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String text;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'text': text,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory RecordNote.fromJson(Map<String, dynamic> json) {
+    return RecordNote(
+      id: _string(json['id']),
+      text: _string(json['text']),
+      createdAt: _date(json['createdAt']),
+    );
+  }
+}
+
+class DebtProduct {
+  const DebtProduct({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.totalAmount,
+    required this.monthlyAmount,
+    required this.dueDate,
+    this.customKindName = '',
+    this.installmentCount,
+    this.currentInstallment,
+    this.limit,
+    this.usedLimit,
+    this.description = '',
+    this.isArchived = false,
+    this.payments = const [],
+    this.notes = const [],
+  });
+
+  final String id;
+  final DebtKind kind;
+  final String title;
+  final String customKindName;
+  final double totalAmount;
+  final double monthlyAmount;
+  final DateTime dueDate;
+  final int? installmentCount;
+  final int? currentInstallment;
+  final double? limit;
+  final double? usedLimit;
+  final String description;
+  final bool isArchived;
+  final List<PaymentRecord> payments;
+  final List<RecordNote> notes;
+
+  double get paidAmount => payments.fold(0, (sum, item) => sum + item.amount);
+
+  double get remainingAmount {
+    final value = totalAmount - paidAmount;
+    return value <= 0 ? 0 : double.parse(value.toStringAsFixed(2));
+  }
+
+  int overdueDaysAt(DateTime reference) {
+    if (remainingAmount <= 0 || !_dateOnly(dueDate).isBefore(_dateOnly(reference))) {
+      return 0;
+    }
+    return _dateOnly(reference).difference(_dateOnly(dueDate)).inDays;
+  }
+
+  PaymentStatus statusAt(DateTime reference) {
+    if (isArchived) return PaymentStatus.passive;
+    if (remainingAmount <= 0) return PaymentStatus.completed;
+    final days = _daysUntil(dueDate, reference);
+    if (days < 0) return PaymentStatus.overdue;
+    if (days <= 5) return PaymentStatus.upcoming;
+    return PaymentStatus.active;
+  }
+
+  PaymentStatus get status => statusAt(DateTime.now());
+
+  String get displayKind =>
+      kind == DebtKind.custom && customKindName.trim().isNotEmpty
+          ? customKindName.trim()
+          : kind.label;
+
+  bool isDueInMonth(DateTime month) =>
+      dueDate.year == month.year && dueDate.month == month.month;
+
+  DebtProduct copyWith({
+    DebtKind? kind,
+    String? title,
+    String? customKindName,
+    double? totalAmount,
+    double? monthlyAmount,
+    DateTime? dueDate,
+    int? installmentCount,
+    int? currentInstallment,
+    double? limit,
+    double? usedLimit,
+    String? description,
+    bool? isArchived,
+    List<PaymentRecord>? payments,
+    List<RecordNote>? notes,
+  }) {
+    return DebtProduct(
+      id: id,
+      kind: kind ?? this.kind,
+      title: title ?? this.title,
+      customKindName: customKindName ?? this.customKindName,
+      totalAmount: totalAmount ?? this.totalAmount,
+      monthlyAmount: monthlyAmount ?? this.monthlyAmount,
+      dueDate: dueDate ?? this.dueDate,
+      installmentCount: installmentCount ?? this.installmentCount,
+      currentInstallment: currentInstallment ?? this.currentInstallment,
+      limit: limit ?? this.limit,
+      usedLimit: usedLimit ?? this.usedLimit,
+      description: description ?? this.description,
+      isArchived: isArchived ?? this.isArchived,
+      payments: payments ?? this.payments,
+      notes: notes ?? this.notes,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'kind': kind.name,
+        'title': title,
+        'customKindName': customKindName,
+        'totalAmount': totalAmount,
+        'monthlyAmount': monthlyAmount,
+        'dueDate': dueDate.toIso8601String(),
+        'installmentCount': installmentCount,
+        'currentInstallment': currentInstallment,
+        'limit': limit,
+        'usedLimit': usedLimit,
+        'description': description,
+        'isArchived': isArchived,
+        'payments': payments.map((item) => item.toJson()).toList(),
+        'notes': notes.map((item) => item.toJson()).toList(),
+      };
+
+  factory DebtProduct.fromJson(Map<String, dynamic> json) {
+    final kindName = _string(json['kind'], fallback: DebtKind.custom.name);
+    return DebtProduct(
+      id: _string(json['id']),
+      kind: DebtKind.values.firstWhere(
+        (item) => item.name == kindName,
+        orElse: () => DebtKind.custom,
+      ),
+      title: _string(json['title']),
+      customKindName: _string(json['customKindName']),
+      totalAmount: _safeAmount(json['totalAmount'] as num?),
+      monthlyAmount: _safeAmount(json['monthlyAmount'] as num?),
+      dueDate: _date(json['dueDate']),
+      installmentCount: _intOrNull(json['installmentCount']),
+      currentInstallment: _intOrNull(json['currentInstallment']),
+      limit: json['limit'] is num ? _safeAmount(json['limit'] as num) : null,
+      usedLimit:
+          json['usedLimit'] is num ? _safeAmount(json['usedLimit'] as num) : null,
+      description: _string(json['description'], fallback: _string(json['note'])),
+      isArchived: json['isArchived'] as bool? ?? false,
+      payments: _paymentList(json['payments']),
+      notes: _noteList(json['notes']),
+    );
+  }
+}
+
+class BankGroup {
+  const BankGroup({
+    required this.id,
+    required this.userWrittenName,
+    this.products = const [],
+  });
+
+  final String id;
+  final String userWrittenName;
+  final List<DebtProduct> products;
+
+  double get totalDebt =>
+      products.fold(0, (sum, product) => sum + product.remainingAmount);
+
+  double monthlyLoadFor(DateTime month) => products
+      .where((product) =>
+          !product.isArchived &&
+          product.remainingAmount > 0 &&
+          product.isDueInMonth(month))
+      .fold(0, (sum, product) => sum + product.monthlyAmount);
+
+  BankGroup copyWith({
+    String? userWrittenName,
+    List<DebtProduct>? products,
+  }) {
+    return BankGroup(
+      id: id,
+      userWrittenName: userWrittenName ?? this.userWrittenName,
+      products: products ?? this.products,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'userWrittenName': userWrittenName,
+        'products': products.map((item) => item.toJson()).toList(),
+      };
+
+  factory BankGroup.fromJson(Map<String, dynamic> json) {
+    return BankGroup(
+      id: _string(json['id']),
+      userWrittenName: _string(json['userWrittenName']),
+      products: ((json['products'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => DebtProduct.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+    );
+  }
+}
+
+class BillEntry {
+  const BillEntry({
+    required this.id,
+    required this.kind,
+    required this.institutionName,
+    required this.amount,
+    required this.dueDate,
+    this.subscriberNumber = '',
+    this.contractNumber = '',
+    this.description = '',
+    this.isArchived = false,
+    this.payments = const [],
+    this.notes = const [],
+  });
+
+  final String id;
+  final BillKind kind;
+  final String institutionName;
+  final String subscriberNumber;
+  final String contractNumber;
+  final double amount;
+  final DateTime dueDate;
+  final String description;
+  final bool isArchived;
+  final List<PaymentRecord> payments;
+  final List<RecordNote> notes;
+
+  double get paidAmount => payments.fold(0, (sum, item) => sum + item.amount);
+
+  double get remainingAmount {
+    final value = amount - paidAmount;
+    return value <= 0 ? 0 : double.parse(value.toStringAsFixed(2));
+  }
+
+  PaymentStatus statusAt(DateTime reference) {
+    if (isArchived) return PaymentStatus.passive;
+    if (remainingAmount <= 0) return PaymentStatus.completed;
+    final days = _daysUntil(dueDate, reference);
+    if (days < 0) return PaymentStatus.overdue;
+    if (days <= 5) return PaymentStatus.upcoming;
+    return PaymentStatus.active;
+  }
+
+  PaymentStatus get status => statusAt(DateTime.now());
+
+  bool isDueInMonth(DateTime month) =>
+      dueDate.year == month.year && dueDate.month == month.month;
+
+  BillEntry copyWith({
+    BillKind? kind,
+    String? institutionName,
+    String? subscriberNumber,
+    String? contractNumber,
+    double? amount,
+    DateTime? dueDate,
+    String? description,
+    bool? isArchived,
+    List<PaymentRecord>? payments,
+    List<RecordNote>? notes,
+  }) {
+    return BillEntry(
+      id: id,
+      kind: kind ?? this.kind,
+      institutionName: institutionName ?? this.institutionName,
+      subscriberNumber: subscriberNumber ?? this.subscriberNumber,
+      contractNumber: contractNumber ?? this.contractNumber,
+      amount: amount ?? this.amount,
+      dueDate: dueDate ?? this.dueDate,
+      description: description ?? this.description,
+      isArchived: isArchived ?? this.isArchived,
+      payments: payments ?? this.payments,
+      notes: notes ?? this.notes,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'kind': kind.name,
+        'institutionName': institutionName,
+        'subscriberNumber': subscriberNumber,
+        'contractNumber': contractNumber,
+        'amount': amount,
+        'dueDate': dueDate.toIso8601String(),
+        'description': description,
+        'isArchived': isArchived,
+        'payments': payments.map((item) => item.toJson()).toList(),
+        'notes': notes.map((item) => item.toJson()).toList(),
+      };
+
+  factory BillEntry.fromJson(Map<String, dynamic> json) {
+    final kindName = _string(json['kind'], fallback: BillKind.custom.name);
+    final legacyPaidAt = _dateOrNull(json['paidAt']);
+    final payments = _paymentList(json['payments']).toList();
+    if (legacyPaidAt != null && payments.isEmpty) {
+      payments.add(
+        PaymentRecord(
+          id: 'legacy-${_string(json['id'])}',
+          amount: _safeAmount(json['amount'] as num?),
+          paidAt: legacyPaidAt,
+          note: 'Eski kayıttan aktarıldı',
+        ),
+      );
+    }
+    return BillEntry(
+      id: _string(json['id']),
+      kind: BillKind.values.firstWhere(
+        (item) => item.name == kindName,
+        orElse: () => BillKind.custom,
+      ),
+      institutionName: _string(json['institutionName']),
+      subscriberNumber: _string(json['subscriberNumber']),
+      contractNumber: _string(json['contractNumber']),
+      amount: _safeAmount(json['amount'] as num?),
+      dueDate: _date(json['dueDate']),
+      description: _string(json['description']),
+      isArchived: json['isArchived'] as bool? ?? false,
+      payments: payments,
+      notes: _noteList(json['notes']),
+    );
+  }
+}
+
+class RentEntry {
+  const RentEntry({
+    required this.id,
+    required this.title,
+    required this.amount,
+    required this.paymentDay,
+    required this.receiverName,
+    required this.dueDate,
+    this.iban = '',
+    this.contractStart,
+    this.contractEnd,
+    this.increaseDate,
+    this.installmentCount,
+    this.currentInstallment,
+    this.description = '',
+    this.isArchived = false,
+    this.payments = const [],
+    this.notes = const [],
+  });
+
+  final String id;
+  final String title;
+  final double amount;
+  final int paymentDay;
+  final String receiverName;
+  final String iban;
+  final DateTime dueDate;
+  final DateTime? contractStart;
+  final DateTime? contractEnd;
+  final DateTime? increaseDate;
+  final int? installmentCount;
+  final int? currentInstallment;
+  final String description;
+  final bool isArchived;
+  final List<PaymentRecord> payments;
+  final List<RecordNote> notes;
+
+  double get paidAmount => payments.fold(0, (sum, item) => sum + item.amount);
+
+  double get remainingAmount {
+    final value = amount - paidAmount;
+    return value <= 0 ? 0 : double.parse(value.toStringAsFixed(2));
+  }
+
+  PaymentStatus statusAt(DateTime reference) {
+    if (isArchived) return PaymentStatus.passive;
+    if (remainingAmount <= 0) return PaymentStatus.completed;

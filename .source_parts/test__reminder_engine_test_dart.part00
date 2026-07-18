@@ -1,0 +1,33 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lefferion_prime_mizan/models/mizan_models.dart';
+import 'package:lefferion_prime_mizan/services/reminder_engine.dart';
+
+void main() {
+  test('gider saatleri ve kayıt bazlı ödeme bildirimleri ayrıdır', () {
+    final now = DateTime(2026, 7, 18, 8);
+    final state = MizanState(
+      people: [PersonAccount(id: 'p', name: 'Kişi', bills: [BillEntry(id: 'bill', kind: BillKind.electricity, institutionName: 'Kurum', amount: 200, dueDate: DateTime(2026, 7, 20))])],
+      expenseCategories: const [], expenses: const [], notificationSlots: defaultNotificationSlots,
+    );
+    final plan = const ReminderPlanBuilder().build(state: state, now: now);
+    final expenses = plan.where((item) => item.kind == ReminderKind.expense).toList();
+    final payments = plan.where((item) => item.kind == ReminderKind.payment).toList();
+    expect(expenses, hasLength(3));
+    expect(payments, isNotEmpty);
+    expect(payments.every((item) => item.sourceId == 'bill'), isTrue);
+    expect(plan.map((item) => item.id).toSet().length, plan.length);
+  });
+
+  test('tamamlanan ve arşivlenen kayıt için ödeme bildirimi üretmez', () {
+    final now = DateTime(2026, 7, 18, 8);
+    final state = MizanState(
+      people: [PersonAccount(id: 'p', name: 'Kişi', bills: [
+        BillEntry(id: 'done', kind: BillKind.water, institutionName: 'A', amount: 100, dueDate: DateTime(2026, 7, 20), payments: [PaymentRecord(id: 'pay', amount: 100, paidAt: now)]),
+        BillEntry(id: 'archived', kind: BillKind.phone, institutionName: 'B', amount: 100, dueDate: DateTime(2026, 7, 20), isArchived: true),
+      ])],
+      expenseCategories: const [], expenses: const [], notificationSlots: const [],
+    );
+    final plan = const ReminderPlanBuilder().build(state: state, now: now);
+    expect(plan.where((item) => item.kind == ReminderKind.payment), isEmpty);
+  });
+}

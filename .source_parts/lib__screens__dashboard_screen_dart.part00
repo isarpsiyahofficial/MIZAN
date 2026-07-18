@@ -1,0 +1,90 @@
+import 'package:flutter/material.dart';
+
+import '../controllers/mizan_controller.dart';
+import '../core/formatters.dart';
+import '../core/theme.dart';
+import '../models/mizan_models.dart';
+import '../widgets/mizan_cards.dart';
+
+class DashboardScreen extends StatelessWidget {
+  const DashboardScreen({required this.controller, super.key});
+  final MizanController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.state;
+    final now = DateTime.now();
+    final critical = state
+        .recordReferencesAt(now)
+        .where((item) => item.status == PaymentStatus.overdue || item.status == PaymentStatus.upcoming)
+        .toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+
+    return ListView(
+      key: const PageStorageKey('dashboard'),
+      padding: EdgeInsets.fromLTRB(
+        MediaQuery.sizeOf(context).width < 380 ? 12 : 18,
+        18,
+        MediaQuery.sizeOf(context).width < 380 ? 12 : 18,
+        100,
+      ),
+      children: [
+        const PageHeader(
+          title: 'LEFFERION PRIME - MIZAN',
+          subtitle: 'Borç, ödeme, fatura, kira ve giderlerin tek yerde dengeli takibi',
+        ),
+        const SizedBox(height: 18),
+        AdaptiveGrid(
+          children: [
+            MetricCard(label: 'Kalan toplam borç', value: money(state.totalDebt), color: MizanTheme.red, icon: Icons.account_balance_wallet_outlined),
+            MetricCard(label: 'Bu ay ödeme yükü', value: money(state.monthlyDebtLoadFor(now)), color: MizanTheme.blue, icon: Icons.calendar_month_outlined),
+            MetricCard(label: 'Bugünkü gider', value: money(state.expenseTotalForDay(now)), color: MizanTheme.orange, icon: Icons.today_outlined),
+            MetricCard(label: 'Bu ay gider', value: money(state.expenseTotalForMonth(now)), color: MizanTheme.green, icon: Icons.receipt_long_outlined),
+          ],
+        ),
+        const SizedBox(height: 22),
+        SectionTitle(
+          'Kritik ödemeler',
+          subtitle: 'Gecikmiş ve önümüzdeki beş gün içinde vadesi gelen kayıtlar',
+          action: Chip(label: Text('${critical.length} kayıt')),
+        ),
+        const SizedBox(height: 12),
+        if (critical.isEmpty)
+          const EmptyState(title: 'Kritik ödeme yok', message: 'Gecikmiş veya beş gün içinde vadesi gelen kayıt bulunmuyor.')
+        else
+          for (final item in critical.take(20)) ...[
+            MizanListCard(
+              title: item.title,
+              subtitle: '${item.subtitle}\nSon ödeme: ${shortDate(item.dueDate)} · Kalan ${money(item.amount)}',
+              leadingColor: statusColor(item.status),
+              icon: switch (item.type) {
+                RecordType.debt => Icons.credit_card_outlined,
+                RecordType.bill => Icons.receipt_long_outlined,
+                RecordType.rent => Icons.home_work_outlined,
+              },
+              trailing: StatusChip(status: item.status),
+            ),
+            const SizedBox(height: 10),
+          ],
+        const SizedBox(height: 22),
+        const SectionTitle('Kişi özeti', subtitle: 'Her kişinin kayıtları birbirinden bağımsız hesaplanır'),
+        const SizedBox(height: 12),
+        if (state.people.isEmpty)
+          const EmptyState(title: 'Henüz kişi yok', message: 'Kişiler ekranından ilk kişiyi ekleyebilirsin.')
+        else
+          AdaptiveGrid(
+            minTileWidth: 250,
+            children: [
+              for (final person in state.people)
+                MizanListCard(
+                  title: person.name,
+                  subtitle: 'Toplam ${money(person.totalDebt)} · Bu ay ${money(person.monthlyLoadFor(now))}\nGecikmiş ${person.overdueCountAt(now)} kayıt',
+                  leadingColor: person.overdueCountAt(now) > 0 ? MizanTheme.red : MizanTheme.green,
+                  icon: Icons.person_outline,
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}

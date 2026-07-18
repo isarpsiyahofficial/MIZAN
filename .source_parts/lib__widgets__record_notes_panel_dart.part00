@@ -1,0 +1,164 @@
+import 'package:flutter/material.dart';
+
+import '../core/formatters.dart';
+import '../core/theme.dart';
+import '../models/mizan_models.dart';
+
+class RecordNotesPanel extends StatefulWidget {
+  const RecordNotesPanel({
+    required this.notes,
+    required this.onAddNote,
+    this.onDeleteNote,
+    super.key,
+  });
+
+  final List<RecordNote> notes;
+  final Future<void> Function(String text) onAddNote;
+  final Future<void> Function(String noteId)? onDeleteNote;
+
+  @override
+  State<RecordNotesPanel> createState() => _RecordNotesPanelState();
+}
+
+class _RecordNotesPanelState extends State<RecordNotesPanel> {
+  bool expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final notes = expanded ? widget.notes : widget.notes.take(2).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('Notlar', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                ),
+                TextButton.icon(
+                  onPressed: () => _showAddDialog(context),
+                  icon: const Icon(Icons.add_comment_outlined),
+                  label: const Text('Not ekle'),
+                ),
+              ],
+            ),
+            if (widget.notes.isEmpty)
+              const Text(
+                'Bu kayda ait not bulunmuyor. Notlar ödeme açıklamalarından ayrı tutulur.',
+                style: TextStyle(color: MizanTheme.muted),
+              )
+            else ...[
+              for (final note in notes)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: MizanTheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(11),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(note.text, style: const TextStyle(fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 4),
+                                Text(shortDate(note.createdAt), style: const TextStyle(color: MizanTheme.muted, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          if (widget.onDeleteNote != null)
+                            IconButton(
+                              tooltip: 'Notu sil',
+                              onPressed: () => _confirmDelete(context, note),
+                              icon: const Icon(Icons.delete_outline, color: MizanTheme.red),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (widget.notes.length > 2)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() => expanded = !expanded),
+                    icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+                    label: Text(expanded ? 'Notları daralt' : 'Tüm ${widget.notes.length} notu göster'),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAddDialog(BuildContext context) async {
+    final key = GlobalKey<FormState>();
+    final text = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Not ekle'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Form(
+              key: key,
+              child: SingleChildScrollView(
+                child: TextFormField(
+                  controller: text,
+                  maxLength: 240,
+                  minLines: 3,
+                  maxLines: 6,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'Not'),
+                  validator: (value) => value == null || value.trim().isEmpty ? 'Not boş bırakılamaz.' : null,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Vazgeç')),
+            FilledButton(
+              onPressed: () async {
+                if (!(key.currentState?.validate() ?? false)) return;
+                await widget.onAddNote(text.text);
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('Kaydet'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      text.dispose();
+    }
+  }
+
+  Future<void> _confirmDelete(BuildContext context, RecordNote note) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Notu sil'),
+        content: const Text('Yalnızca bu not silinecek. Devam edilsin mi?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Vazgeç')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: MizanTheme.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true) await widget.onDeleteNote?.call(note.id);
+  }
+}
