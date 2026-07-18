@@ -1,9 +1,16 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lefferion_prime_mizan/controllers/mizan_controller.dart';
+import 'package:lefferion_prime_mizan/core/theme.dart';
 import 'package:lefferion_prime_mizan/main.dart';
 import 'package:lefferion_prime_mizan/models/mizan_models.dart';
 import 'package:lefferion_prime_mizan/services/local_store.dart';
+
+const _screenshotFontFamily = 'MizanScreenshotFont';
 
 class _MemoryStore implements MizanStore {
   _MemoryStore(this.state);
@@ -23,6 +30,25 @@ class _MemoryStore implements MizanStore {
   Future<void> save(MizanState value) async => state = value;
 }
 
+Future<void> _loadReadableScreenshotFont() async {
+  const candidates = [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+  ];
+  final path = candidates.firstWhere(
+    (candidate) => File(candidate).existsSync(),
+    orElse: () => throw StateError('Okunabilir ekran görüntüsü fontu bulunamadı.'),
+  );
+  final loader = FontLoader(_screenshotFontFamily);
+  loader.addFont(
+    File(path).readAsBytes().then(
+          (bytes) => ByteData.view(Uint8List.fromList(bytes).buffer),
+        ),
+  );
+  await loader.load();
+}
+
 Future<void> _pumpApp(
   WidgetTester tester, {
   Size size = const Size(412, 915),
@@ -34,7 +60,19 @@ Future<void> _pumpApp(
 
   final controller = MizanController(_MemoryStore(MizanState.seed()));
   await controller.load();
-  await tester.pumpWidget(MizanApp(controller: controller));
+  final baseTheme = MizanTheme.light();
+  await tester.pumpWidget(
+    MaterialApp(
+      title: 'LEFFERION PRIME - MIZAN',
+      debugShowCheckedModeBanner: false,
+      theme: baseTheme.copyWith(
+        textTheme: baseTheme.textTheme.apply(fontFamily: _screenshotFontFamily),
+        primaryTextTheme:
+            baseTheme.primaryTextTheme.apply(fontFamily: _screenshotFontFamily),
+      ),
+      home: MizanHome(controller: controller),
+    ),
+  );
   await tester.pumpAndSettle();
   expect(tester.takeException(), isNull);
 }
@@ -82,6 +120,8 @@ Future<void> _capture(
 }
 
 void main() {
+  setUpAll(_loadReadableScreenshotFont);
+
   testWidgets('ana sayfa telefon görseli', (tester) async {
     await _pumpApp(tester);
     await _capture(tester, '01-dashboard-phone');
