@@ -23,10 +23,11 @@ jobs:
       - name: Apply CI-confirmed source corrections
         shell: bash
         run: |
-          python3 -m pip install --disable-pip-version-check --quiet pillow
+          mkdir -p ci-logs
+          exec > >(tee ci-logs/patch.log) 2>&1
+          set -e
           python3 - <<'PY'
           from pathlib import Path
-          from PIL import Image
 
           root = Path('.')
 
@@ -99,11 +100,14 @@ jobs:
             });
           }
           """, encoding='utf-8')
-
-          logo = root / 'assets/brand/lefferion-prime-logo.png'
-          image = Image.open(logo).convert('RGBA')
-          image.save(logo, format='PNG', optimize=True)
           PY
+          logo='assets/brand/lefferion-prime-logo.png'
+          if command -v magick >/dev/null 2>&1; then
+            magick "$logo" -alpha on "PNG32:${logo}.fixed"
+          else
+            convert "$logo" -alpha on "PNG32:${logo}.fixed"
+          fi
+          mv "${logo}.fixed" "$logo"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -162,8 +166,11 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          result_file = Path('ci-logs/results.txt')
+          if not result_file.exists():
+              raise SystemExit('Tanılama sonuç dosyası oluşturulamadı. patch.log dosyasını inceleyin.')
           results = {}
-          for line in Path('ci-logs/results.txt').read_text().splitlines():
+          for line in result_file.read_text().splitlines():
               name, code = line.split('=', 1)
               results[name] = int(code)
           failed = {name: code for name, code in results.items() if code != 0}
