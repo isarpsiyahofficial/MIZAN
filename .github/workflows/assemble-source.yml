@@ -15,9 +15,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Attach pull request branch to merge result
+      - name: Check out actual pull request branch
         if: github.event_name == 'pull_request'
-        run: git checkout -B "$GITHUB_HEAD_REF"
+        run: |
+          git fetch origin "$GITHUB_HEAD_REF" --depth=1
+          git checkout -B "$GITHUB_HEAD_REF" FETCH_HEAD
       - name: Assemble transparent source fragments
         run: python3 tools/assemble_source.py
       - name: Apply CI-confirmed source corrections
@@ -255,4 +257,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "feat: publish verified MIZAN Flutter source"
-          git push --force origin HEAD:"$GITHUB_HEAD_REF"
+          git push origin HEAD:"$GITHUB_HEAD_REF"
