@@ -73,6 +73,34 @@ def wrap_single_line_ifs(text: str) -> str:
     return "\n".join(output) + ("\n" if text.endswith("\n") else "")
 
 
+def delay_local_controller_disposal(text: str) -> str:
+    patterns = [
+        (
+            r"finally\s*\{\s*name\.dispose\(\);\s*\}",
+            "finally {\n      await Future<void>.delayed(kThemeAnimationDuration);\n      name.dispose();\n    }",
+        ),
+        (
+            r"finally\s*\{\s*confirmation\.dispose\(\);\s*\}",
+            "finally {\n      await Future<void>.delayed(kThemeAnimationDuration);\n      confirmation.dispose();\n    }",
+        ),
+        (
+            r"finally\s*\{\s*name\.dispose\(\);\s*quantity\.dispose\(\);\s*unitPrice\.dispose\(\);\s*note\.dispose\(\);\s*\}",
+            "finally {\n      await Future<void>.delayed(kThemeAnimationDuration);\n      name.dispose();\n      quantity.dispose();\n      unitPrice.dispose();\n      note.dispose();\n    }",
+        ),
+        (
+            r"finally\s*\{\s*text\.dispose\(\);\s*\}",
+            "finally {\n      await Future<void>.delayed(kThemeAnimationDuration);\n      text.dispose();\n    }",
+        ),
+        (
+            r"finally\s*\{\s*message\.dispose\(\);\s*\}",
+            "finally {\n      await Future<void>.delayed(kThemeAnimationDuration);\n      message.dispose();\n    }",
+        ),
+    ]
+    for pattern, replacement in patterns:
+        text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
+    return text
+
+
 for target, prefix in FILES.items():
     pieces = sorted(PARTS.glob(f"{prefix}.part*"))
     if not pieces:
@@ -121,10 +149,27 @@ expenses = expenses.replace(
     "if (parseMoney(value ?? '') < 0) return 'Birim fiyat negatif olamaz.';",
     "if (parseMoney(value ?? '') < 0) { return 'Birim fiyat negatif olamaz.'; }",
 )
-expenses_path.write_text(expenses, encoding="utf-8")
+expenses_path.write_text(delay_local_controller_disposal(expenses), encoding="utf-8")
+
+settings_path = ROOT / "lib/screens/settings_screen.dart"
+settings_path.write_text(
+    delay_local_controller_disposal(settings_path.read_text(encoding="utf-8")),
+    encoding="utf-8",
+)
+
+notes_path = ROOT / "lib/widgets/record_notes_panel.dart"
+notes_path.write_text(
+    delay_local_controller_disposal(notes_path.read_text(encoding="utf-8")),
+    encoding="utf-8",
+)
 
 cards_path = ROOT / "lib/widgets/mizan_cards.dart"
 cards = cards_path.read_text(encoding="utf-8")
+cards = re.sub(
+    r"if \(subtitle != null\)\s+Text\(subtitle!,",
+    "if (subtitle case final value?) Text(value,",
+    cards,
+)
 cards = re.sub(
     r"if \(action != null\)\s+action!,",
     "if (action case final value?) value,",
@@ -151,4 +196,4 @@ for dart_file in (ROOT / "lib").rglob("*.dart"):
 shutil.rmtree(PARTS)
 (ROOT / ".github/workflows/assemble-source.yml").unlink(missing_ok=True)
 Path(__file__).unlink(missing_ok=True)
-print(f"{len(FILES)} kaynak dosyası birleştirildi ve güvenli analyzer düzeltmeleri uygulandı.")
+print(f"{len(FILES)} kaynak dosyası birleştirildi; dialog ve analyzer güvenlik düzeltmeleri uygulandı.")
