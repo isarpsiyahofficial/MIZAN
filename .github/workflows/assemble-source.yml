@@ -12,7 +12,7 @@ permissions:
 jobs:
   assemble-quality-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Assemble transparent source fragments
@@ -42,19 +42,53 @@ jobs:
         run: flutter pub get
       - name: Format and parse
         run: dart format lib test
-      - name: Launcher icons
-        run: dart run flutter_launcher_icons
-      - name: Analyze
-        run: flutter analyze --fatal-infos
-      - name: Requirement structure check
-        run: python3 tools/validate_project.py
-      - name: Tests
-        run: flutter test --reporter expanded
-      - name: Release APK
-        run: flutter build apk --release
-      - name: Upload APK
+      - name: Run complete diagnostics
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-infos
+          run_check requirements python3 tools/validate_project.py
+          run_check tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-ci-diagnostics
+          path: ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload APK if generated
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lefferion-prime-mizan-unsigned-release
           path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Enforce all checks
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          results = {}
+          for line in Path('ci-logs/results.txt').read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          failed = {name: code for name, code in results.items() if code != 0}
+          if failed:
+              raise SystemExit(f"Başarısız kontroller: {failed}")
+          print('Tüm kontroller başarılı.')
+          PY
