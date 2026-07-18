@@ -20,3 +20,5 @@ Mizan, kişi bazlı borç, fatura, kira, taksit ve gider takibi için hazırlana
 ## GitHub Actions APK
 
 Workflow `.github/workflows/android-release.yml` içinde Flutter SDK kurar, Android platform dosyalarını üretir, launcher iconları hazırlar, testleri çalıştırır ve imzasız release APK üretir.
+
+Kaynak bütünlüğü ve CI doğrulaması 18 Temmuz 2026 tarihinde yeniden başlatıldı.
