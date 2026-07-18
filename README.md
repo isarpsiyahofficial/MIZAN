@@ -23,4 +23,4 @@ Workflow `.github/workflows/android-release.yml` içinde Flutter SDK kurar, Andr
 
 Kaynak bütünlüğü ve CI doğrulaması 18 Temmuz 2026 tarihinde yeniden başlatıldı.
 
-Bu dal, tam analyze, test, responsive ve release APK doğrulamasını çalıştırır. Tanılama çıktıları ayrı artifact olarak saklanır. Güvenli alana uyumlu şeffaf LP ikonu sıfırdan üretilerek altıncı tam koşu başlatıldı.
+Son doğrulama; sıfır analyzer sorunu, 260 maddelik yapısal kontrol, 25 birim ve etkileşim testi, dar ekran taşma kontrolleri ve release APK üretimini birlikte zorunlu tutar.
