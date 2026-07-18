@@ -22,3 +22,5 @@ Mizan, kişi bazlı borç, fatura, kira, taksit ve gider takibi için hazırlana
 Workflow `.github/workflows/android-release.yml` içinde Flutter SDK kurar, Android platform dosyalarını üretir, launcher iconları hazırlar, testleri çalıştırır ve imzasız release APK üretir.
 
 Kaynak bütünlüğü ve CI doğrulaması 18 Temmuz 2026 tarihinde yeniden başlatıldı.
+
+Bu dal, tam analyze, test, responsive ve release APK doğrulamasını çalıştırır.
