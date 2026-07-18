@@ -143,11 +143,27 @@ people = people.replace(
 )
 people_path.write_text(people, encoding="utf-8")
 
+forms_path = ROOT / "lib/screens/record_form_dialogs.dart"
+forms = forms_path.read_text(encoding="utf-8")
+forms = forms.replace(
+    "@override Widget build(BuildContext context)=>LayoutBuilder(builder:(context,c){if(c.maxWidth<480||MediaQuery.textScalerOf(context).scale(1)>1.3){return Column(children:[left,const SizedBox(height:12),right]);}return Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:left),const SizedBox(width:12),Expanded(child:right)]);});",
+    "@override Widget build(BuildContext context)=>Builder(builder:(context){final narrow=MediaQuery.sizeOf(context).width<600||MediaQuery.textScalerOf(context).scale(1)>1.3;if(narrow){return Column(children:[left,const SizedBox(height:12),right]);}return Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:left),const SizedBox(width:12),Expanded(child:right)]);});",
+)
+forms_path.write_text(forms, encoding="utf-8")
+
 expenses_path = ROOT / "lib/screens/expenses_screen.dart"
 expenses = expenses_path.read_text(encoding="utf-8")
 expenses = expenses.replace(
     "if (parseMoney(value ?? '') < 0) return 'Birim fiyat negatif olamaz.';",
     "if (parseMoney(value ?? '') < 0) { return 'Birim fiyat negatif olamaz.'; }",
+)
+expenses = expenses.replace(
+    "LayoutBuilder(builder: (_, constraints) {",
+    "Builder(builder: (context) {",
+)
+expenses = expenses.replace(
+    "if (constraints.maxWidth < 470) return Column(children: [fields[0], const SizedBox(height: 12), fields[1]]);",
+    "if (MediaQuery.sizeOf(context).width < 600 || MediaQuery.textScalerOf(context).scale(1) > 1.3) return Column(children: [fields[0], const SizedBox(height: 12), fields[1]]);",
 )
 expenses_path.write_text(delay_local_controller_disposal(expenses), encoding="utf-8")
 
@@ -163,8 +179,21 @@ notes_path.write_text(
     encoding="utf-8",
 )
 
+reports_path = ROOT / "lib/screens/reports_screen.dart"
+reports = reports_path.read_text(encoding="utf-8")
+reports = reports.replace(
+    "Row(crossAxisAlignment: CrossAxisAlignment.start, children: [\n                    Expanded(child: Text(entry.key, softWrap: true, style: const TextStyle(fontWeight: FontWeight.w800))),\n                    const SizedBox(width: 12),\n                    Flexible(child: Text(money(entry.value), textAlign: TextAlign.end, style: TextStyle(color: color, fontWeight: FontWeight.w900))),\n                  ]),",
+    "Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n                    Text(entry.key, softWrap: true, style: const TextStyle(fontWeight: FontWeight.w800)),\n                    const SizedBox(height: 4),\n                    Text(money(entry.value), textAlign: TextAlign.end, style: TextStyle(color: color, fontWeight: FontWeight.w900)),\n                  ]),",
+)
+reports_path.write_text(reports, encoding="utf-8")
+
 cards_path = ROOT / "lib/widgets/mizan_cards.dart"
 cards = cards_path.read_text(encoding="utf-8")
+cards = re.sub(
+    r"if \(icon != null\)\s+\.\.\.\[\s*Icon\(icon,",
+    "if (icon case final value?) ...[\n              Icon(value,",
+    cards,
+)
 cards = re.sub(
     r"if \(subtitle != null\)\s+Text\(subtitle!,",
     "if (subtitle case final value?) Text(value,",
@@ -196,4 +225,4 @@ for dart_file in (ROOT / "lib").rglob("*.dart"):
 shutil.rmtree(PARTS)
 (ROOT / ".github/workflows/assemble-source.yml").unlink(missing_ok=True)
 Path(__file__).unlink(missing_ok=True)
-print(f"{len(FILES)} kaynak dosyası birleştirildi; dialog ve analyzer güvenlik düzeltmeleri uygulandı.")
+print(f"{len(FILES)} kaynak dosyası birleştirildi; dialog, rapor ve analyzer düzeltmeleri uygulandı.")
