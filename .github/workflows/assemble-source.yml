@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   assemble-quality-build:
@@ -259,11 +259,45 @@ jobs:
               raise SystemExit(f"Başarısız kontroller: {failed}")
           print('Tüm kontroller başarılı.')
           PY
-      - name: Commit verified normal source to pull request branch
-        if: github.event_name == 'pull_request'
+      - name: Package exact verified Flutter source
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "feat: publish verified MIZAN Flutter source"
-          git push origin HEAD:"$GITHUB_HEAD_REF"
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN'
+          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-SOURCE.zip'
+          if stage.parent.exists():
+              shutil.rmtree(stage.parent)
+          stage.mkdir(parents=True)
+
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts:
+                  continue
+              if relative.parts[0] in excluded_roots or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+
+          with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Doğrulanmış kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
+          PY
+      - name: Upload exact verified project source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-verified-source
+          path: dist/LEFFERION-PRIME-MIZAN-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
