@@ -50,11 +50,33 @@ Future<void> _tapNavigation(WidgetTester tester, IconData icon) async {
   expect(tester.takeException(), isNull);
 }
 
-Future<void> _capture(WidgetTester tester, String filename) async {
+Future<void> _scrollToTextAndTap(
+  WidgetTester tester,
+  String text, {
+  Finder? scrollable,
+}) async {
+  final target = find.text(text);
+  expect(target, findsOneWidget);
+  await tester.scrollUntilVisible(
+    target,
+    240,
+    scrollable: scrollable ?? find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(target);
+  await tester.pumpAndSettle();
+  expect(tester.takeException(), isNull);
+}
+
+Future<void> _capture(
+  WidgetTester tester,
+  String filename, {
+  Finder? target,
+}) async {
   await tester.pumpAndSettle();
   expect(tester.takeException(), isNull);
   await expectLater(
-    find.byType(Scaffold).first,
+    target ?? find.byType(Scaffold).first,
     matchesGoldenFile('goldens/$filename.png'),
   );
 }
@@ -74,19 +96,33 @@ void main() {
   testWidgets('borç detay görseli', (tester) async {
     await _pumpApp(tester);
     await _tapNavigation(tester, Icons.people_alt_outlined);
-    await tester.tap(find.text('Kullanıcının yazdığı banka adı'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Kredi kartı borcu'));
-    await tester.pumpAndSettle();
+    final peopleList = find.byType(ListView).first;
+    await _scrollToTextAndTap(
+      tester,
+      'Kullanıcının yazdığı banka adı',
+      scrollable: peopleList,
+    );
+    await _scrollToTextAndTap(
+      tester,
+      'Kredi kartı borcu',
+      scrollable: peopleList,
+    );
     expect(find.byType(BottomSheet), findsOneWidget);
-    await _capture(tester, '03-debt-detail-phone');
+    await _capture(
+      tester,
+      '03-debt-detail-phone',
+      target: find.byType(Overlay).first,
+    );
   });
 
   testWidgets('giderler telefon görseli', (tester) async {
     await _pumpApp(tester);
     await _tapNavigation(tester, Icons.shopping_bag_outlined);
-    await tester.tap(find.text('Market'));
-    await tester.pumpAndSettle();
+    await _scrollToTextAndTap(
+      tester,
+      'Market',
+      scrollable: find.byType(ListView).first,
+    );
     await _capture(tester, '04-expenses-phone');
   });
 
