@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import lzma
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -44,6 +45,10 @@ if patch_sha != EXPECTED_PATCH_SHA:
 
 patch_path = ROOT / ".mizan_revision.patch"
 patch_path.write_bytes(patch)
+diagnostics = ROOT / "ci-logs"
+diagnostics.mkdir(parents=True, exist_ok=True)
+shutil.copy2(patch_path, diagnostics / "mizan_revision.patch")
+
 try:
     subprocess.run(
         ["git", "apply", "--binary", "--whitespace=nowarn", str(patch_path)],
