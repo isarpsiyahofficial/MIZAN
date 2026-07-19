@@ -93,6 +93,15 @@ try:
         raise SystemExit(
             f"Unresolved MIZAN v2 patch rejects remain: {remaining_rejects}"
         )
+
+    interaction_test = ROOT / "test/ui_interaction_test.dart"
+    interaction_text = interaction_test.read_text(encoding="utf-8")
+    old_expectation = "expect(find.text('Bu ay'), findsOneWidget);"
+    new_expectation = "expect(find.text('Bu ay'), findsWidgets);"
+    if old_expectation not in interaction_text and new_expectation not in interaction_text:
+        raise SystemExit("Monthly summary interaction expectation was not found.")
+    interaction_text = interaction_text.replace(old_expectation, new_expectation)
+    interaction_test.write_text(interaction_text, encoding="utf-8")
 finally:
     patch_path.unlink(missing_ok=True)
 
