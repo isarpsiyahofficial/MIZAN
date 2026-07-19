@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   verify-build:
@@ -20,8 +21,103 @@ jobs:
           git fetch origin "$GITHUB_HEAD_REF" --depth=1
           git checkout -B "$GITHUB_HEAD_REF" FETCH_HEAD
 
-      - name: Assemble verified baseline
-        run: python3 tools/assemble_source.py
+      - name: Download last fully verified Flutter source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-verified-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29648456911
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore SHA-verified Flutter baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          artifact_dir = root / '.baseline-artifact'
+          archives = sorted(artifact_dir.glob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+
+          archive = archives[0]
+          expected_sha = '6da36339c2117ee552fa4dfb29848cacd6d458e18c1addea7be321e28db87257'
+          actual_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual_sha != expected_sha:
+              raise SystemExit(f'Kaynak ZIP SHA uyuşmuyor: {actual_sha} != {expected_sha}')
+
+          extract_root = Path('/tmp/mizan-v2-verified-baseline')
+          preserve_root = Path('/tmp/mizan-v2-branch-files')
+          shutil.rmtree(extract_root, ignore_errors=True)
+          shutil.rmtree(preserve_root, ignore_errors=True)
+          extract_root.mkdir(parents=True)
+          preserve_root.mkdir(parents=True)
+
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall(extract_root)
+
+          source = extract_root / 'LEFFERION-PRIME-MIZAN'
+          if not source.is_dir():
+              raise SystemExit(f'Doğrulanmış kaynak kökü bulunamadı: {source}')
+
+          preserve = [
+              Path('.github/workflows/assemble-source.yml'),
+              Path('tools/apply_revision_patch.py'),
+              Path('patch_chunks_v3'),
+          ]
+          for relative in preserve:
+              current = root / relative
+              target = preserve_root / relative
+              if current.is_dir():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copytree(current, target)
+              elif current.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(current, target)
+              else:
+                  raise SystemExit(f'Korunacak revizyon dosyası eksik: {relative}')
+
+          for child in root.iterdir():
+              if child.name == '.git':
+                  continue
+              if child.is_dir():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+
+          for child in source.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target)
+              else:
+                  shutil.copy2(child, target)
+
+          for child in preserve_root.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target, dirs_exist_ok=True)
+              else:
+                  shutil.copy2(child, target)
+
+          required = [
+              'lib/main.dart',
+              'lib/models/mizan_models.dart',
+              'test/ui_interaction_test.dart',
+              'test/visual_capture_test.dart',
+              'tools/apply_revision_patch.py',
+          ]
+          missing = [relative for relative in required if not (root / relative).is_file()]
+          if missing:
+              raise SystemExit(f'Doğrulanmış taban eksik dosya içeriyor: {missing}')
+
+          print(f'Doğrulanmış Flutter tabanı geri yüklendi: SHA-256 {actual_sha}')
+          PY
 
       - name: Apply SHA-verified MIZAN v2 revision
         shell: bash
@@ -141,7 +237,7 @@ jobs:
           }
           excluded_files = {
               '.flutter-plugins', '.flutter-plugins-dependencies',
-              '.packages', 'local.properties'
+              '.packages', 'local.properties', '.mizan_revision.patch'
           }
           for source in root.rglob('*'):
               relative = source.relative_to(root)
