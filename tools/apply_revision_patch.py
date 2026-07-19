@@ -96,11 +96,39 @@ try:
 
     interaction_test = ROOT / "test/ui_interaction_test.dart"
     interaction_text = interaction_test.read_text(encoding="utf-8")
-    old_expectation = "expect(find.text('Bu ay'), findsOneWidget);"
-    new_expectation = "expect(find.text('Bu ay'), findsWidgets);"
-    if old_expectation not in interaction_text and new_expectation not in interaction_text:
+
+    old_month_expectation = "expect(find.text('Bu ay'), findsOneWidget);"
+    new_month_expectation = "expect(find.text('Bu ay'), findsWidgets);"
+    if (
+        old_month_expectation not in interaction_text
+        and new_month_expectation not in interaction_text
+    ):
         raise SystemExit("Monthly summary interaction expectation was not found.")
-    interaction_text = interaction_text.replace(old_expectation, new_expectation)
+    interaction_text = interaction_text.replace(
+        old_month_expectation,
+        new_month_expectation,
+    )
+
+    old_report_expectation = (
+        "    expect(find.text('Ödeme yükünün dağılımı'), findsOneWidget);"
+    )
+    new_report_expectation = """    final distribution = find.text('Ödeme yükünün dağılımı');
+    await tester.scrollUntilVisible(
+      distribution,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(distribution, findsOneWidget);"""
+    if (
+        old_report_expectation not in interaction_text
+        and new_report_expectation not in interaction_text
+    ):
+        raise SystemExit("Report distribution interaction expectation was not found.")
+    interaction_text = interaction_text.replace(
+        old_report_expectation,
+        new_report_expectation,
+    )
+
     interaction_test.write_text(interaction_text, encoding="utf-8")
 finally:
     patch_path.unlink(missing_ok=True)
