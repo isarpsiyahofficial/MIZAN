@@ -70,6 +70,7 @@ jobs:
               Path('.github/workflows/assemble-source.yml'),
               Path('tools/apply_revision_patch.py'),
               Path('tools/resolve_revision_rejects.py'),
+              Path('tools/post_revision_fixes.py'),
               Path('patch_chunks_v3'),
           ]
           for relative in preserve:
@@ -113,6 +114,7 @@ jobs:
               'test/visual_capture_test.dart',
               'tools/apply_revision_patch.py',
               'tools/resolve_revision_rejects.py',
+              'tools/post_revision_fixes.py',
           ]
           missing = [relative for relative in required if not (root / relative).is_file()]
           if missing:
@@ -127,6 +129,12 @@ jobs:
           set -o pipefail
           mkdir -p ci-logs
           python3 tools/apply_revision_patch.py 2>&1 | tee ci-logs/revision-patch.log
+
+      - name: Apply current Flutter package compatibility fixes
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tools/post_revision_fixes.py 2>&1 | tee ci-logs/post-revision.log
 
       - uses: actions/setup-java@v4
         with:
@@ -240,7 +248,8 @@ jobs:
           excluded_files = {
               '.flutter-plugins', '.flutter-plugins-dependencies',
               '.packages', 'local.properties', '.mizan_revision.patch',
-              'apply_revision_patch.py', 'resolve_revision_rejects.py'
+              'apply_revision_patch.py', 'resolve_revision_rejects.py',
+              'post_revision_fixes.py'
           }
           for source in root.rglob('*'):
               relative = source.relative_to(root)
