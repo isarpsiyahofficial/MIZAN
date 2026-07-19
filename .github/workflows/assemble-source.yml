@@ -69,6 +69,7 @@ jobs:
           preserve = [
               Path('.github/workflows/assemble-source.yml'),
               Path('tools/apply_revision_patch.py'),
+              Path('tools/resolve_revision_rejects.py'),
               Path('patch_chunks_v3'),
           ]
           for relative in preserve:
@@ -111,6 +112,7 @@ jobs:
               'test/ui_interaction_test.dart',
               'test/visual_capture_test.dart',
               'tools/apply_revision_patch.py',
+              'tools/resolve_revision_rejects.py',
           ]
           missing = [relative for relative in required if not (root / relative).is_file()]
           if missing:
@@ -237,7 +239,8 @@ jobs:
           }
           excluded_files = {
               '.flutter-plugins', '.flutter-plugins-dependencies',
-              '.packages', 'local.properties', '.mizan_revision.patch'
+              '.packages', 'local.properties', '.mizan_revision.patch',
+              'apply_revision_patch.py', 'resolve_revision_rejects.py'
           }
           for source in root.rglob('*'):
               relative = source.relative_to(root)
