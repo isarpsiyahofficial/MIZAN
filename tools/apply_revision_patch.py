@@ -50,15 +50,53 @@ diagnostics.mkdir(parents=True, exist_ok=True)
 shutil.copy2(patch_path, diagnostics / "mizan_revision.patch")
 
 try:
+    result = subprocess.run(
+        [
+            "git",
+            "apply",
+            "--reject",
+            "--binary",
+            "--whitespace=nowarn",
+            str(patch_path),
+        ],
+        cwd=ROOT,
+        check=False,
+    )
+
+    known_rejects = {
+        "lib/controllers/mizan_controller.dart.rej",
+        "lib/models/mizan_models.dart.rej",
+        "lib/services/local_store.dart.rej",
+        "pubspec.yaml.rej",
+    }
+    actual_rejects = {
+        str(path.relative_to(ROOT)).replace("\\", "/")
+        for path in ROOT.rglob("*.rej")
+    }
+    unexpected = actual_rejects - known_rejects
+    if unexpected:
+        raise SystemExit(f"Unexpected MIZAN v2 patch rejects: {sorted(unexpected)}")
+
+    if result.returncode not in (0, 1):
+        raise SystemExit(f"Revision patch application returned {result.returncode}")
+
     subprocess.run(
-        ["git", "apply", "--binary", "--whitespace=nowarn", str(patch_path)],
+        ["python3", "tools/resolve_revision_rejects.py"],
         cwd=ROOT,
         check=True,
     )
+
+    remaining_rejects = [
+        str(path.relative_to(ROOT)) for path in ROOT.rglob("*.rej")
+    ]
+    if remaining_rejects:
+        raise SystemExit(
+            f"Unresolved MIZAN v2 patch rejects remain: {remaining_rejects}"
+        )
 finally:
     patch_path.unlink(missing_ok=True)
 
 print(
-    "MIZAN v2 revision patch applied and verified: "
+    "MIZAN v2 revision patch and prerequisite layer applied: "
     f"{len(patch)} bytes, SHA-256 {patch_sha}."
 )
