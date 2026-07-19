@@ -109,25 +109,26 @@ try:
         new_month_expectation,
     )
 
-    old_report_expectation = (
-        "    expect(find.text('Ödeme yükünün dağılımı'), findsOneWidget);"
-    )
-    new_report_expectation = """    final distribution = find.text('Ödeme yükünün dağılımı');
+    replacements = {
+        "    expect(find.text('Ödeme yükünün dağılımı'), findsOneWidget);": """    final distribution = find.text('Ödeme yükünün dağılımı');
     await tester.scrollUntilVisible(
       distribution,
       220,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(distribution, findsOneWidget);"""
-    if (
-        old_report_expectation not in interaction_text
-        and new_report_expectation not in interaction_text
-    ):
-        raise SystemExit("Report distribution interaction expectation was not found.")
-    interaction_text = interaction_text.replace(
-        old_report_expectation,
-        new_report_expectation,
-    )
+    expect(distribution, findsOneWidget);""",
+        "    expect(find.text('Gider dağılımı'), findsOneWidget);": """    final expenseDistribution = find.text('Gider dağılımı');
+    await tester.scrollUntilVisible(
+      expenseDistribution,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(expenseDistribution, findsOneWidget);""",
+    }
+    for old, new in replacements.items():
+        if old not in interaction_text and new not in interaction_text:
+            raise SystemExit(f"Report interaction expectation was not found: {old}")
+        interaction_text = interaction_text.replace(old, new)
 
     interaction_test.write_text(interaction_text, encoding="utf-8")
 finally:
