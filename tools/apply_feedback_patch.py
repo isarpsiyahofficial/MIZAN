@@ -74,23 +74,48 @@ interaction_text = interaction_test.read_text(encoding="utf-8")
 
 old_delete = "    expect(find.text('Kişiyi sil'), findsOneWidget);"
 new_delete = """    final deletePerson = find.text('Kişiyi sil');
-    await tester.ensureVisible(deletePerson);
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      deletePerson,
+      120,
+      scrollable: detailScrollable,
+    );
     expect(deletePerson, findsOneWidget);"""
 if old_delete not in interaction_text:
     raise SystemExit("Person delete visibility expectation was not found.")
 interaction_text = interaction_text.replace(old_delete, new_delete, 1)
 
-old_add_debt = """    await tester.scrollUntilVisible(
+old_bank_flow = """    await tester.scrollUntilVisible(
+      find.text('Kullanıcının bankası'),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Kullanıcının bankası'));
+    await tester.pumpAndSettle();
+    final addDebt = find.text('Borç ürünü ekle');
+    await tester.scrollUntilVisible(
       addDebt,
       220,
       scrollable: find.byType(Scrollable).first,
-    );"""
-new_add_debt = """    await tester.ensureVisible(addDebt);
+    );
+    await tester.tap(addDebt);
     await tester.pumpAndSettle();"""
-if old_add_debt not in interaction_text:
-    raise SystemExit("Add debt visibility block was not found.")
-interaction_text = interaction_text.replace(old_add_debt, new_add_debt, 1)
+new_bank_flow = """    final bankTitle = find.text('Kullanıcının bankası');
+    await tester.scrollUntilVisible(
+      bankTitle,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(bankTitle, findsOneWidget);
+    final bankActions = find.byTooltip('Banka grubu işlemleri');
+    await tester.ensureVisible(bankActions);
+    await tester.tap(bankActions);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Borç ekle'));
+    await tester.pumpAndSettle();
+    expect(find.text('Borç ürünü ekle'), findsOneWidget);"""
+if old_bank_flow not in interaction_text:
+    raise SystemExit("Bank debt creation interaction flow was not found.")
+interaction_text = interaction_text.replace(old_bank_flow, new_bank_flow, 1)
 interaction_test.write_text(interaction_text, encoding="utf-8")
 
 format_result = subprocess.run(
