@@ -1,4 +1,4 @@
-name: MIZAN v2 safe verification
+name: MIZAN phone feedback verification
 
 on:
   pull_request:
@@ -71,7 +71,9 @@ jobs:
               Path('tools/apply_revision_patch.py'),
               Path('tools/resolve_revision_rejects.py'),
               Path('tools/post_revision_fixes.py'),
+              Path('tools/apply_feedback_patch.py'),
               Path('patch_chunks_v3'),
+              Path('feedback_patch_chunks'),
           ]
           for relative in preserve:
               current = root / relative
@@ -115,6 +117,7 @@ jobs:
               'tools/apply_revision_patch.py',
               'tools/resolve_revision_rejects.py',
               'tools/post_revision_fixes.py',
+              'tools/apply_feedback_patch.py',
           ]
           missing = [relative for relative in required if not (root / relative).is_file()]
           if missing:
@@ -135,6 +138,12 @@ jobs:
         run: |
           set -o pipefail
           python3 tools/post_revision_fixes.py 2>&1 | tee ci-logs/post-revision.log
+
+      - name: Apply reviewed phone feedback fixes
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tools/apply_feedback_patch.py 2>&1 | tee ci-logs/phone-feedback.log
 
       - uses: actions/setup-java@v4
         with:
@@ -185,7 +194,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-v2-ui-screenshots
+          name: mizan-phone-feedback-ui-screenshots
           path: test/goldens/*.png
           if-no-files-found: warn
           retention-days: 30
@@ -194,7 +203,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-v2-ci-diagnostics
+          name: mizan-phone-feedback-ci-diagnostics
           path: ci-logs/
           if-no-files-found: error
           retention-days: 14
@@ -203,7 +212,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-v2-unsigned-release
+          name: lefferion-prime-mizan-phone-feedback-unsigned-release
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: ignore
           retention-days: 30
@@ -223,7 +232,7 @@ jobs:
           failed = {name: code for name, code in results.items() if code != 0}
           if failed:
               raise SystemExit(f'Başarısız kontroller: {failed}')
-          print('MIZAN v2 tüm zorunlu kontrolleri geçti.')
+          print('MIZAN telefon geri bildirimi sürümü tüm zorunlu kontrolleri geçti.')
           PY
 
       - name: Package exact verified Flutter source
@@ -234,22 +243,23 @@ jobs:
           import zipfile
 
           root = Path.cwd()
-          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN-V2'
-          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-V2-SOURCE.zip'
+          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK'
+          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK-SOURCE.zip'
           if stage.parent.exists():
               shutil.rmtree(stage.parent)
           stage.mkdir(parents=True)
 
           excluded_roots = {
               '.git', '.dart_tool', 'build', 'ci-logs', 'dist',
-              '.source_parts', 'patch_chunks_v3', 'revision_parts',
-              'revision_chunks_v2'
+              '.source_parts', 'patch_chunks_v3', 'feedback_patch_chunks',
+              'revision_parts', 'revision_chunks_v2'
           }
           excluded_files = {
               '.flutter-plugins', '.flutter-plugins-dependencies',
               '.packages', 'local.properties', '.mizan_revision.patch',
               'apply_revision_patch.py', 'resolve_revision_rejects.py',
-              'post_revision_fixes.py'
+              'post_revision_fixes.py', 'apply_feedback_patch.py',
+              '.mizan_feedback.patch'
           }
           for source in root.rglob('*'):
               relative = source.relative_to(root)
@@ -268,13 +278,13 @@ jobs:
               for source in stage.rglob('*'):
                   if source.is_file():
                       output.write(source, source.relative_to(stage.parent))
-          print(f'Doğrulanmış MIZAN v2 kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
+          print(f'Doğrulanmış MIZAN telefon geri bildirimi kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
           PY
 
       - name: Upload exact verified project source ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-v2-verified-source
-          path: dist/LEFFERION-PRIME-MIZAN-V2-SOURCE.zip
+          name: lefferion-prime-mizan-phone-feedback-verified-source
+          path: dist/LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK-SOURCE.zip
           if-no-files-found: error
           retention-days: 30
