@@ -139,12 +139,6 @@ jobs:
           set -o pipefail
           python3 tools/post_revision_fixes.py 2>&1 | tee ci-logs/post-revision.log
 
-      - name: Apply reviewed phone feedback fixes
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 tools/apply_feedback_patch.py 2>&1 | tee ci-logs/phone-feedback.log
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -166,6 +160,15 @@ jobs:
         run: flutter pub get
 
       - name: Format
+        run: dart format lib test
+
+      - name: Apply reviewed phone feedback fixes
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tools/apply_feedback_patch.py 2>&1 | tee ci-logs/phone-feedback.log
+
+      - name: Format reviewed phone feedback source
         run: dart format lib test
 
       - name: Run complete diagnostics
