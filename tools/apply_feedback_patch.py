@@ -69,6 +69,30 @@ print(
     f"{len(patch)} bytes, SHA-256 {patch_sha}."
 )
 
+interaction_test = ROOT / "test/ui_interaction_test.dart"
+interaction_text = interaction_test.read_text(encoding="utf-8")
+
+old_delete = "    expect(find.text('Kişiyi sil'), findsOneWidget);"
+new_delete = """    final deletePerson = find.text('Kişiyi sil');
+    await tester.ensureVisible(deletePerson);
+    await tester.pumpAndSettle();
+    expect(deletePerson, findsOneWidget);"""
+if old_delete not in interaction_text:
+    raise SystemExit("Person delete visibility expectation was not found.")
+interaction_text = interaction_text.replace(old_delete, new_delete, 1)
+
+old_add_debt = """    await tester.scrollUntilVisible(
+      addDebt,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );"""
+new_add_debt = """    await tester.ensureVisible(addDebt);
+    await tester.pumpAndSettle();"""
+if old_add_debt not in interaction_text:
+    raise SystemExit("Add debt visibility block was not found.")
+interaction_text = interaction_text.replace(old_add_debt, new_add_debt, 1)
+interaction_test.write_text(interaction_text, encoding="utf-8")
+
 format_result = subprocess.run(
     ["dart", "format", "lib", "test"],
     cwd=ROOT,
