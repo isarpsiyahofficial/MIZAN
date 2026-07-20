@@ -9,10 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CHUNKS = ROOT / "feedback_patch_chunks"
 EXPECTED_COMPRESSED_SHA = (
-    "f06a7017bd209a2d40e04c0ab1043adbb5effac2b70b05cde9b898852bc3cb86"
+    "96eecada8d5bd335e406768b5b1c95813cd00703d21e8d7a208f9f7b8ff5a400"
 )
 EXPECTED_PATCH_SHA = (
-    "5b2765f3efdcbc5c3654a15018c460d524bc98360b4369f7d35287aaea88c987"
+    "54b80c5a704ca33e54cdcca3e147fbc3201e33a299453212e81db1994e3dbb24"
 )
 EXPECTED_CHUNK_COUNT = 1
 
