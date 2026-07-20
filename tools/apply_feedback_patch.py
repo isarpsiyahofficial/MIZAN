@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CHUNKS = ROOT / "feedback_patch_chunks_v3"
+CHUNKS = ROOT / "feedback_patch_chunks"
 EXPECTED_COMPRESSED_SHA = (
     "8c546e74a304f8b4a334ba1a1abfeea8e43f0acf587fb04b7067551f27a18ef0"
 )
