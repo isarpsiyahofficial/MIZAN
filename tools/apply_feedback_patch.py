@@ -68,3 +68,13 @@ print(
     "Phone feedback patch applied and verified: "
     f"{len(patch)} bytes, SHA-256 {patch_sha}."
 )
+
+format_result = subprocess.run(
+    ["dart", "format", "lib", "test"],
+    cwd=ROOT,
+    check=False,
+)
+if format_result.returncode != 0:
+    raise SystemExit(
+        f"Phone feedback Dart format failed with code {format_result.returncode}."
+    )
