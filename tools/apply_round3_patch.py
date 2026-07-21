@@ -16,13 +16,27 @@ EXPECTED_PATCH_SHA = (
 )
 EXPECTED_CHUNK_COUNT = 9
 
-pieces = sorted(CHUNKS.glob("chunk*.txt"))
-if len(pieces) != EXPECTED_CHUNK_COUNT:
-    raise SystemExit(
-        f"Round 3 patch chunk count mismatch: {len(pieces)} != {EXPECTED_CHUNK_COUNT}"
-    )
 
-encoded = "".join(path.read_text(encoding="utf-8").strip() for path in pieces)
+def read_chunk(index: int) -> str:
+    name = f"chunk{index:02d}.txt"
+    path = CHUNKS / name
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    result = subprocess.run(
+        ["git", "show", f"HEAD:round3_patch_chunks_v2/{name}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+pieces = [read_chunk(index) for index in range(EXPECTED_CHUNK_COUNT)]
+if any(not piece for piece in pieces):
+    raise SystemExit("Round 3 patch contains an empty chunk.")
+
+encoded = "".join(pieces)
 try:
     compressed = base64.b64decode(encoded, validate=True)
 except Exception as error:
