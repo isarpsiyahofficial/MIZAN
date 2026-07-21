@@ -1,5 +1,7 @@
 from pathlib import Path
 
+# This deterministic post-Round-3 layer is intentionally kept separate so
+# every final GitHub Actions run verifies the same responsive and PDF fixes.
 ROOT = Path(__file__).resolve().parents[1]
 
 settings = ROOT / 'lib/screens/settings_screen.dart'
