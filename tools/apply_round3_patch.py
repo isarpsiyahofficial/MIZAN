@@ -86,6 +86,15 @@ def apply_patch(label: str, filename: str, patch: bytes) -> None:
     print(f"{label} applied successfully.")
 
 
+def replace_once(path: Path, old: str, new: str, label: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if old not in text:
+        if new in text:
+            return
+        raise SystemExit(f"Round 3 compatibility target not found: {label}")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 main_patch = decode_patch(
     label="MIZAN round 3 main patch",
     directory="round3_patch_chunks_v2",
@@ -116,4 +125,55 @@ apply_patch(
     new_files_patch,
 )
 
-print("MIZAN round 3 complete revision applied with both verified packages.")
+replace_once(
+    ROOT / "test/controller_test.dart",
+    "expect(updated.payments.last.entryType, PaymentEntryType.installment);",
+    "expect(updated.payments.first.entryType, PaymentEntryType.installment);",
+    "new payment order assertion",
+)
+replace_once(
+    ROOT / "lib/screens/reports_screen.dart",
+    "    var working = {...selectedPersonIds};",
+    "    final working = {...selectedPersonIds};",
+    "final report person selection",
+)
+replace_once(
+    ROOT / "lib/screens/settings_screen.dart",
+    """                    : (value) {
+                        if (value != null) {
+                          controller.setPaymentReminderFrequency(value);
+                        }
+                      },""",
+    """                    : (value) async {
+                        if (value != null) {
+                          await controller.setPaymentReminderFrequency(value);
+                        }
+                      },""",
+    "await reminder frequency update",
+)
+replace_once(
+    ROOT / "lib/screens/settings_screen.dart",
+    """                    : (value) {
+                        if (value != null) {
+                          controller.setNotificationSoundMode(value);
+                        }
+                      },""",
+    """                    : (value) async {
+                        if (value != null) {
+                          await controller.setNotificationSoundMode(value);
+                        }
+                      },""",
+    "await notification sound update",
+)
+
+required = [
+    ROOT / "lib/services/report_service.dart",
+    ROOT / "lib/services/pdf_report_service.dart",
+    ROOT / "test/report_service_test.dart",
+    ROOT / "test/pdf_report_test.dart",
+]
+missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
+if missing:
+    raise SystemExit(f"Round 3 new files are missing after patch application: {missing}")
+
+print("MIZAN round 3 complete revision and compatibility fixes applied.")
