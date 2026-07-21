@@ -113,6 +113,41 @@ pdf_test = ROOT / 'test/pdf_report_test.dart'
 text = pdf_test.read_text(encoding='utf-8')
 if "import 'dart:io';" not in text:
     text = "import 'dart:io';\n\n" + text
+if "import 'dart:typed_data';" not in text:
+    text = text.replace(
+        "import 'dart:io';\n",
+        "import 'dart:io';\nimport 'dart:typed_data';\n",
+        1,
+    )
+if "import 'package:flutter/services.dart';" not in text:
+    text = text.replace(
+        "import 'package:flutter_test/flutter_test.dart';",
+        "import 'package:flutter/services.dart';\n"
+        "import 'package:flutter_test/flutter_test.dart';",
+        1,
+    )
+font_helper = '''Future<void> _loadUnicodePdfTestFont() async {
+  final fontFile = File('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf');
+  if (!await fontFile.exists()) {
+    throw StateError('PDF test Unicode fontu bulunamadı: ${fontFile.path}');
+  }
+  final bytes = await fontFile.readAsBytes();
+  final loader = FontLoader('Roboto');
+  loader.addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+  await loader.load();
+}
+
+'''
+if 'Future<void> _loadUnicodePdfTestFont()' not in text:
+    text = text.replace('void main() {', font_helper + 'void main() {', 1)
+old_test_start = """  test('PDF raporu geçerli PDF üretir ve ayrıntılarda taşmaz', () async {
+    final now = DateTime(2026, 7, 19, 12);"""
+new_test_start = """  test('PDF raporu geçerli PDF üretir ve ayrıntılarda taşmaz', () async {
+    await _loadUnicodePdfTestFont();
+    final now = DateTime(2026, 7, 19, 12);"""
+if old_test_start not in text and new_test_start not in text:
+    raise SystemExit('PDF test font-load insertion target was not found.')
+text = text.replace(old_test_start, new_test_start, 1)
 old = """    expect(bytes.length, greaterThan(1000));
     expect(String.fromCharCodes(bytes.take(4)), '%PDF');"""
 new = """    expect(bytes.length, greaterThan(1000));
@@ -130,7 +165,12 @@ pdf_test.write_text(text, encoding='utf-8')
 checks = {
     settings: ['Wrap(', 'WrapCrossAlignment.center', 'softWrap: true'],
     reports: ['scrollable: true', "title: const Text('Tüm kişileri kapsa')"],
-    pdf_test: ["import 'dart:io';", 'MIZAN-TUM-ZAMANLAR-RAPOR-ORNEGI.pdf'],
+    pdf_test: [
+        "import 'package:flutter/services.dart';",
+        'Future<void> _loadUnicodePdfTestFont()',
+        'await _loadUnicodePdfTestFont();',
+        'MIZAN-TUM-ZAMANLAR-RAPOR-ORNEGI.pdf',
+    ],
 }
 for path, tokens in checks.items():
     content = path.read_text(encoding='utf-8')
@@ -138,4 +178,4 @@ for path, tokens in checks.items():
     if missing:
         raise SystemExit(f'Final responsive/PDF fix validation failed for {path}: {missing}')
 
-print('Round 3 final responsive dialog and PDF sample fixes applied.')
+print('Round 3 final responsive dialog and Unicode PDF sample fixes applied.')
