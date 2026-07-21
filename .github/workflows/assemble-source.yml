@@ -1,4 +1,4 @@
-name: MIZAN phone feedback verification
+name: MIZAN round 3 full verification
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   verify-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -21,16 +21,16 @@ jobs:
           git fetch origin "$GITHUB_HEAD_REF" --depth=1
           git checkout -B "$GITHUB_HEAD_REF" FETCH_HEAD
 
-      - name: Download last fully verified Flutter source
+      - name: Download latest verified phone source
         uses: actions/download-artifact@v4
         with:
-          name: lefferion-prime-mizan-verified-source
+          name: lefferion-prime-mizan-phone-feedback-verified-source
           repository: isarpsiyahofficial/MIZAN
-          run-id: 29648456911
+          run-id: 29778390280
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: .baseline-artifact
 
-      - name: Restore SHA-verified Flutter baseline
+      - name: Restore SHA-verified phone source
         shell: bash
         run: |
           set -euo pipefail
@@ -44,16 +44,18 @@ jobs:
           artifact_dir = root / '.baseline-artifact'
           archives = sorted(artifact_dir.glob('*.zip'))
           if len(archives) != 1:
-              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+              raise SystemExit(f'Beklenen tek telefon kaynak ZIP bulunamadı: {archives}')
 
           archive = archives[0]
-          expected_sha = '6da36339c2117ee552fa4dfb29848cacd6d458e18c1addea7be321e28db87257'
+          expected_sha = 'f12213eabfacba455c5bab593b069020bf661a1ba1ba519a6fdf6f59650f069b'
           actual_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
           if actual_sha != expected_sha:
-              raise SystemExit(f'Kaynak ZIP SHA uyuşmuyor: {actual_sha} != {expected_sha}')
+              raise SystemExit(
+                  f'Telefon kaynak ZIP SHA uyuşmuyor: {actual_sha} != {expected_sha}'
+              )
 
-          extract_root = Path('/tmp/mizan-v2-verified-baseline')
-          preserve_root = Path('/tmp/mizan-v2-branch-files')
+          extract_root = Path('/tmp/mizan-round3-phone-baseline')
+          preserve_root = Path('/tmp/mizan-round3-branch-files')
           shutil.rmtree(extract_root, ignore_errors=True)
           shutil.rmtree(preserve_root, ignore_errors=True)
           extract_root.mkdir(parents=True)
@@ -62,18 +64,14 @@ jobs:
           with zipfile.ZipFile(archive) as source_zip:
               source_zip.extractall(extract_root)
 
-          source = extract_root / 'LEFFERION-PRIME-MIZAN'
+          source = extract_root / 'LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK'
           if not source.is_dir():
-              raise SystemExit(f'Doğrulanmış kaynak kökü bulunamadı: {source}')
+              raise SystemExit(f'Doğrulanmış telefon kaynak kökü bulunamadı: {source}')
 
           preserve = [
               Path('.github/workflows/assemble-source.yml'),
-              Path('tools/apply_revision_patch.py'),
-              Path('tools/resolve_revision_rejects.py'),
-              Path('tools/post_revision_fixes.py'),
-              Path('tools/apply_feedback_patch.py'),
-              Path('patch_chunks_v3'),
-              Path('feedback_patch_chunks'),
+              Path('tools/apply_round3_patch.py'),
+              Path('round3_patch_chunks'),
           ]
           for relative in preserve:
               current = root / relative
@@ -85,7 +83,7 @@ jobs:
                   target.parent.mkdir(parents=True, exist_ok=True)
                   shutil.copy2(current, target)
               else:
-                  raise SystemExit(f'Korunacak revizyon dosyası eksik: {relative}')
+                  raise SystemExit(f'Korunacak round 3 dosyası eksik: {relative}')
 
           for child in root.iterdir():
               if child.name == '.git':
@@ -112,32 +110,24 @@ jobs:
           required = [
               'lib/main.dart',
               'lib/models/mizan_models.dart',
+              'lib/screens/reports_screen.dart',
+              'lib/screens/settings_screen.dart',
               'test/ui_interaction_test.dart',
-              'test/visual_capture_test.dart',
-              'tools/apply_revision_patch.py',
-              'tools/resolve_revision_rejects.py',
-              'tools/post_revision_fixes.py',
-              'tools/apply_feedback_patch.py',
+              'tools/apply_round3_patch.py',
           ]
           missing = [relative for relative in required if not (root / relative).is_file()]
           if missing:
-              raise SystemExit(f'Doğrulanmış taban eksik dosya içeriyor: {missing}')
+              raise SystemExit(f'Doğrulanmış telefon tabanı eksik: {missing}')
 
-          print(f'Doğrulanmış Flutter tabanı geri yüklendi: SHA-256 {actual_sha}')
+          print(f'Doğrulanmış telefon kaynağı geri yüklendi: SHA-256 {actual_sha}')
           PY
 
-      - name: Apply SHA-verified MIZAN v2 revision
+      - name: Apply SHA-verified round 3 revision
         shell: bash
         run: |
           set -o pipefail
           mkdir -p ci-logs
-          python3 tools/apply_revision_patch.py 2>&1 | tee ci-logs/revision-patch.log
-
-      - name: Apply current Flutter package compatibility fixes
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 tools/post_revision_fixes.py 2>&1 | tee ci-logs/post-revision.log
+          python3 tools/apply_round3_patch.py 2>&1 | tee ci-logs/round3-patch.log
 
       - uses: actions/setup-java@v4
         with:
@@ -150,25 +140,16 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Generate Android project
+      - name: Generate and normalize Android project
         run: flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
 
       - name: Configure Android
         run: python3 tools/configure_android.py
 
-      - name: Dependencies
+      - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Format
-        run: dart format lib test
-
-      - name: Apply reviewed phone feedback fixes
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 tools/apply_feedback_patch.py 2>&1 | tee ci-logs/phone-feedback.log
-
-      - name: Format reviewed phone feedback source
+      - name: Format source
         run: dart format lib test
 
       - name: Run complete diagnostics
@@ -190,6 +171,8 @@ jobs:
           run_check launcher dart run flutter_launcher_icons
           run_check analyze flutter analyze --fatal-warnings
           run_check requirements python3 tools/validate_project.py
+          run_check pdf flutter test test/pdf_report_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart --reporter expanded
           run_check tests flutter test --reporter expanded
           run_check apk flutter build apk --release
 
@@ -197,7 +180,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-phone-feedback-ui-screenshots
+          name: mizan-round3-ui-screenshots
           path: test/goldens/*.png
           if-no-files-found: warn
           retention-days: 30
@@ -206,7 +189,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-phone-feedback-ci-diagnostics
+          name: mizan-round3-ci-diagnostics
           path: ci-logs/
           if-no-files-found: error
           retention-days: 14
@@ -215,16 +198,21 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-phone-feedback-unsigned-release
+          name: lefferion-prime-mizan-round3-unsigned-release
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Enforce all checks
+      - name: Enforce every verification gate
         if: always()
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements',
+              'pdf', 'reports', 'tests', 'apk'
+          }
           result_file = Path('ci-logs/results.txt')
           if not result_file.exists():
               raise SystemExit('Tanılama sonuç dosyası oluşturulamadı.')
@@ -232,10 +220,13 @@ jobs:
           for line in result_file.read_text().splitlines():
               name, code = line.split('=', 1)
               results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan zorunlu kontroller: {missing}')
           failed = {name: code for name, code in results.items() if code != 0}
           if failed:
               raise SystemExit(f'Başarısız kontroller: {failed}')
-          print('MIZAN telefon geri bildirimi sürümü tüm zorunlu kontrolleri geçti.')
+          print('MİZAN round 3 bütün zorunlu kontrolleri geçti.')
           PY
 
       - name: Package exact verified Flutter source
@@ -246,8 +237,8 @@ jobs:
           import zipfile
 
           root = Path.cwd()
-          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK'
-          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK-SOURCE.zip'
+          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN-ROUND3'
+          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-ROUND3-SOURCE.zip'
           if stage.parent.exists():
               shutil.rmtree(stage.parent)
           stage.mkdir(parents=True)
@@ -255,14 +246,12 @@ jobs:
           excluded_roots = {
               '.git', '.dart_tool', 'build', 'ci-logs', 'dist',
               '.source_parts', 'patch_chunks_v3', 'feedback_patch_chunks',
-              'revision_parts', 'revision_chunks_v2'
+              'round3_patch_chunks', 'revision_parts', 'revision_chunks_v2'
           }
           excluded_files = {
               '.flutter-plugins', '.flutter-plugins-dependencies',
-              '.packages', 'local.properties', '.mizan_revision.patch',
-              'apply_revision_patch.py', 'resolve_revision_rejects.py',
-              'post_revision_fixes.py', 'apply_feedback_patch.py',
-              '.mizan_feedback.patch'
+              '.packages', 'local.properties', '.mizan_round3.patch',
+              'apply_round3_patch.py'
           }
           for source in root.rglob('*'):
               relative = source.relative_to(root)
@@ -281,13 +270,13 @@ jobs:
               for source in stage.rglob('*'):
                   if source.is_file():
                       output.write(source, source.relative_to(stage.parent))
-          print(f'Doğrulanmış MIZAN telefon geri bildirimi kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
+          print(f'Doğrulanmış round 3 kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
           PY
 
-      - name: Upload exact verified project source ZIP
+      - name: Upload exact verified source ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-phone-feedback-verified-source
-          path: dist/LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK-SOURCE.zip
+          name: lefferion-prime-mizan-round3-verified-source
+          path: dist/LEFFERION-PRIME-MIZAN-ROUND3-SOURCE.zip
           if-no-files-found: error
           retention-days: 30
