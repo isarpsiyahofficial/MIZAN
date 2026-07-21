@@ -67,6 +67,7 @@ jobs:
           keep = [
               Path('.github/workflows/assemble-source.yml'),
               Path('tools/apply_round3_patch.py'),
+              Path('tools/apply_round3_final_fixes.py'),
               Path('round3_patch_chunks_v2'),
               Path('round3_newfiles_chunks'),
           ]
@@ -110,6 +111,12 @@ jobs:
           mkdir -p ci-logs
           set -o pipefail
           python3 tools/apply_round3_patch.py 2>&1 | tee ci-logs/final-patch.log
+
+      - name: Apply final responsive and PDF sample fixes
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tools/apply_round3_final_fixes.py 2>&1 | tee ci-logs/final-targeted-fixes.log
 
       - uses: actions/setup-java@v4
         with:
@@ -165,6 +172,15 @@ jobs:
         with:
           name: mizan-final-ui-screenshots
           path: test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload verified PDF sample
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-final-pdf-sample
+          path: test/output/*.pdf
           if-no-files-found: warn
           retention-days: 30
 
@@ -228,7 +244,8 @@ jobs:
           }
           excluded_files = {
               '.flutter-plugins', '.flutter-plugins-dependencies', '.packages',
-              'local.properties', 'apply_round3_patch.py'
+              'local.properties', 'apply_round3_patch.py',
+              'apply_round3_final_fixes.py'
           }
           for source in root.rglob('*'):
               relative = source.relative_to(root)
