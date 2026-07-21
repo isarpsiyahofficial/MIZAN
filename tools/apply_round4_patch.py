@@ -38,6 +38,20 @@ try:
 finally:
     patch_path.unlink(missing_ok=True)
 
+validator_path = ROOT / 'tools/validate_project.py'
+validator_text = validator_path.read_text(encoding='utf-8')
+old_validator_token = '"AlarmRepeatMode", "Tekrarlı alarm"'
+new_validator_token = '"alarmRepeatMode.minutes", "Tekrarlı alarm"'
+if old_validator_token in validator_text:
+    validator_text = validator_text.replace(
+        old_validator_token,
+        new_validator_token,
+        1,
+    )
+elif new_validator_token not in validator_text:
+    raise SystemExit('Round 4 bildirim planı doğrulama hedefi bulunamadı.')
+validator_path.write_text(validator_text, encoding='utf-8')
+
 required = {
     'lib/models/mizan_models.dart': [
         'const int currentSchemaVersion = 7;',
@@ -56,6 +70,7 @@ required = {
         'Future<void> _notice',
     ],
     'lib/screens/record_form_dialogs.dart': ['Manuel gecikme günü (opsiyonel)'],
+    'tools/validate_project.py': ['alarmRepeatMode.minutes'],
 }
 for relative, tokens in required.items():
     text = (ROOT / relative).read_text(encoding='utf-8')
