@@ -91,6 +91,17 @@ def replace_once(path: Path, old: str, new: str, label: str) -> None:
     if old not in text:
         if new in text:
             return
+        semantic_targets = {
+            "await reminder frequency update": (
+                "await controller.setPaymentReminderFrequency(value);"
+            ),
+            "await notification sound update": (
+                "await controller.setNotificationSoundMode(value);"
+            ),
+        }
+        semantic_target = semantic_targets.get(label)
+        if semantic_target is not None and semantic_target in text:
+            return
         raise SystemExit(f"Round 3 compatibility target not found: {label}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
