@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import lzma
+import shutil
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+CHUNKS = ROOT / "patch_chunks_v3"
+EXPECTED_COMPRESSED_SHA = "aa80201c590c4f57177a3c453cadf0c5eecda4d929290d4ac465ca19429e28de"
+EXPECTED_PATCH_SHA = "bada99cb6816c70ac9dd8504bf82a0209d109f6ff8ca8603d0c2d978f8763e28"
+EXPECTED_CHUNK_COUNT = 18
+
+pieces = sorted(CHUNKS.glob("chunk*.txt"))
+if len(pieces) != EXPECTED_CHUNK_COUNT:
+    raise SystemExit(
+        f"Revision patch chunk count mismatch: {len(pieces)} != {EXPECTED_CHUNK_COUNT}"
+    )
+
+encoded = "".join(path.read_text(encoding="utf-8").strip() for path in pieces)
+try:
+    compressed = base64.b64decode(encoded, validate=True)
+except Exception as error:
+    raise SystemExit(f"Revision patch base64 is invalid: {error}") from error
+
+compressed_sha = hashlib.sha256(compressed).hexdigest()
+if compressed_sha != EXPECTED_COMPRESSED_SHA:
+    raise SystemExit(
+        "Revision patch compressed SHA mismatch: "
+        f"{compressed_sha} != {EXPECTED_COMPRESSED_SHA}"
+    )
+
+try:
+    patch = lzma.decompress(compressed)
+except Exception as error:
+    raise SystemExit(f"Revision patch cannot be decompressed: {error}") from error
+
+patch_sha = hashlib.sha256(patch).hexdigest()
+if patch_sha != EXPECTED_PATCH_SHA:
+    raise SystemExit(
+        f"Revision patch SHA mismatch: {patch_sha} != {EXPECTED_PATCH_SHA}"
+    )
+
+patch_path = ROOT / ".mizan_revision.patch"
+patch_path.write_bytes(patch)
+diagnostics = ROOT / "ci-logs"
+diagnostics.mkdir(parents=True, exist_ok=True)
+shutil.copy2(patch_path, diagnostics / "mizan_revision.patch")
+
+try:
+    result = subprocess.run(
+        [
+            "git",
+            "apply",
+            "--reject",
+            "--binary",
+            "--whitespace=nowarn",
+            str(patch_path),
+        ],
+        cwd=ROOT,
+        check=False,
+    )
+
+    known_rejects = {
+        "lib/controllers/mizan_controller.dart.rej",
+        "lib/models/mizan_models.dart.rej",
+        "lib/services/local_store.dart.rej",
+        "pubspec.yaml.rej",
+    }
+    actual_rejects = {
+        str(path.relative_to(ROOT)).replace("\\", "/")
+        for path in ROOT.rglob("*.rej")
+    }
+    unexpected = actual_rejects - known_rejects
+    if unexpected:
+        raise SystemExit(f"Unexpected MIZAN v2 patch rejects: {sorted(unexpected)}")
+
+    if result.returncode not in (0, 1):
+        raise SystemExit(f"Revision patch application returned {result.returncode}")
+
+    subprocess.run(
+        ["python3", "tools/resolve_revision_rejects.py"],
+        cwd=ROOT,
+        check=True,
+    )
+
+    remaining_rejects = [
+        str(path.relative_to(ROOT)) for path in ROOT.rglob("*.rej")
+    ]
+    if remaining_rejects:
+        raise SystemExit(
+            f"Unresolved MIZAN v2 patch rejects remain: {remaining_rejects}"
+        )
+
+    interaction_test = ROOT / "test/ui_interaction_test.dart"
+    interaction_text = interaction_test.read_text(encoding="utf-8")
+
+    old_month_expectation = "expect(find.text('Bu ay'), findsOneWidget);"
+    new_month_expectation = "expect(find.text('Bu ay'), findsWidgets);"
+    if (
+        old_month_expectation not in interaction_text
+        and new_month_expectation not in interaction_text
+    ):
+        raise SystemExit("Monthly summary interaction expectation was not found.")
+    interaction_text = interaction_text.replace(
+        old_month_expectation,
+        new_month_expectation,
+    )
+
+    replacements = {
+        "    expect(find.text('Ödeme yükünün dağılımı'), findsOneWidget);": """    final distribution = find.text('Ödeme yükünün dağılımı');
+    await tester.scrollUntilVisible(
+      distribution,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(distribution, findsOneWidget);""",
+        "    expect(find.text('Gider dağılımı'), findsOneWidget);": """    final expenseDistribution = find.text('Gider dağılımı');
+    await tester.scrollUntilVisible(
+      expenseDistribution,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(expenseDistribution, findsOneWidget);""",
+    }
+    for old, new in replacements.items():
+        if old not in interaction_text and new not in interaction_text:
+            raise SystemExit(f"Report interaction expectation was not found: {old}")
+        interaction_text = interaction_text.replace(old, new)
+
+    interaction_test.write_text(interaction_text, encoding="utf-8")
+finally:
+    patch_path.unlink(missing_ok=True)
+
+print(
+    "MIZAN v2 revision patch and prerequisite layer applied: "
+    f"{len(patch)} bytes, SHA-256 {patch_sha}."
+)

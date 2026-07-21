@@ -1,0 +1,132 @@
+name: Export MIZAN Round 3 source
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out actual pull request branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "$GITHUB_HEAD_REF" --depth=1
+          git checkout -B "$GITHUB_HEAD_REF" FETCH_HEAD
+
+      - name: Download verified phone source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-phone-feedback-verified-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29778390280
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore verified source and Round 3 tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          archives = sorted((root / '.baseline-artifact').glob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = 'f12213eabfacba455c5bab593b069020bf661a1ba1ba519a6fdf6f59650f069b'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual} != {expected}')
+
+          extract = Path('/tmp/mizan-round3-export-base')
+          preserve = Path('/tmp/mizan-round3-export-tools')
+          shutil.rmtree(extract, ignore_errors=True)
+          shutil.rmtree(preserve, ignore_errors=True)
+          extract.mkdir(parents=True)
+          preserve.mkdir(parents=True)
+          with zipfile.ZipFile(archive) as zf:
+              zf.extractall(extract)
+          source = extract / 'LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK'
+          if not source.is_dir():
+              raise SystemExit(f'Kaynak kökü bulunamadı: {source}')
+
+          keep = [
+              Path('tools/apply_round3_patch.py'),
+              Path('round3_patch_chunks_v2'),
+              Path('round3_newfiles_chunks'),
+          ]
+          for relative in keep:
+              current = root / relative
+              target = preserve / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              if current.is_dir():
+                  shutil.copytree(current, target)
+              else:
+                  shutil.copy2(current, target)
+
+          for child in root.iterdir():
+              if child.name == '.git':
+                  continue
+              if child.is_dir():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+          for child in source.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target)
+              else:
+                  shutil.copy2(child, target)
+          for child in preserve.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target, dirs_exist_ok=True)
+              else:
+                  shutil.copy2(child, target)
+          PY
+
+      - name: Apply Round 3
+        run: python3 tools/apply_round3_patch.py
+
+      - name: Package reconstructed source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          root = Path.cwd()
+          archive = root / 'MIZAN-ROUND3-RECONSTRUCTED-SOURCE.zip'
+          excluded = {
+              '.git', '.baseline-artifact', '.dart_tool', 'build',
+              'round3_patch_chunks_v2', 'round3_newfiles_chunks'
+          }
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in root.rglob('*'):
+                  relative = source.relative_to(root)
+                  if not relative.parts or relative.parts[0] in excluded:
+                      continue
+                  if source.is_file() and source != archive:
+                      output.write(source, relative)
+          print(f'Exported: {archive} ({archive.stat().st_size} bytes)')
+          PY
+
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-round3-reconstructed-source
+          path: MIZAN-ROUND3-RECONSTRUCTED-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 7
