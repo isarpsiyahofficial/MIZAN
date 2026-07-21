@@ -1,0 +1,240 @@
+name: MIZAN Round 4 verification
+
+on:
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-round4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out actual Round 4 branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "$GITHUB_HEAD_REF" --depth=1
+          git checkout -B "$GITHUB_HEAD_REF" FETCH_HEAD
+
+      - name: Download reconstructed Round 3 source
+        uses: actions/download-artifact@v4
+        with:
+          name: mizan-round3-reconstructed-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29854882656
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .round3-artifact
+
+      - name: Restore verified Round 3 source and Round 4 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          archives = sorted((root / '.round3-artifact').glob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek Round 3 kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = '853a260da1dceb63fe0c8755a840549d9b8bf23be1c3413f3d1db3517a15cc15'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Round 3 kaynak SHA uyuşmuyor: {actual} != {expected}')
+
+          preserve = Path('/tmp/mizan-round4-payload')
+          shutil.rmtree(preserve, ignore_errors=True)
+          preserve.mkdir(parents=True)
+          for relative in [Path('tools/apply_round4_patch.py'), Path('round4_patch_chunks')]:
+              source = root / relative
+              target = preserve / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              if source.is_dir():
+                  shutil.copytree(source, target)
+              elif source.is_file():
+                  shutil.copy2(source, target)
+              else:
+                  raise SystemExit(f'Round 4 payload eksik: {relative}')
+
+          for child in root.iterdir():
+              if child.name == '.git':
+                  continue
+              if child.is_dir():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall(root)
+          for child in preserve.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target, dirs_exist_ok=True)
+              else:
+                  shutil.copy2(child, target)
+          print(f'Round 3 kaynak tabanı geri yüklendi: SHA-256 {actual}')
+          PY
+
+      - name: Apply SHA-verified Round 4 changes
+        run: python3 tools/apply_round4_patch.py
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        run: flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+
+      - name: Configure Android alarm and notification permissions
+        run: python3 tools/configure_android.py
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Format source
+        run: dart format lib test
+
+      - name: Run complete Round 4 diagnostics
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check models flutter test test/model_test.dart --reporter expanded
+          run_check controller flutter test test/controller_test.dart --reporter expanded
+          run_check reminders flutter test test/reminder_engine_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart --reporter expanded
+          run_check pdf flutter test test/pdf_report_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+      - name: Upload Round 4 screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-round4-ui-screenshots
+          path: test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload redesigned PDF example
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-round4-pdf-example
+          path: test/output/*.pdf
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-round4-ci-diagnostics
+          path: ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-round4-unsigned-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Enforce every Round 4 gate
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          result_file = Path('ci-logs/results.txt')
+          if not result_file.exists():
+              raise SystemExit('Round 4 sonuç dosyası oluşturulamadı.')
+          results = {}
+          for line in result_file.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          failed = {name: code for name, code in results.items() if code != 0}
+          if failed:
+              raise SystemExit(f'Round 4 başarısız kontroller: {failed}')
+          print('MİZAN Round 4 tüm zorunlu kontrolleri geçti.')
+          PY
+
+      - name: Package exact verified Round 4 source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          dist = root / 'dist'
+          stage = dist / 'LEFFERION-PRIME-MIZAN-ROUND4'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-ROUND4-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {
+              '.git', '.dart_tool', 'build', 'ci-logs', 'dist',
+              '.round3-artifact', 'round4_patch_chunks'
+          }
+          excluded_files = {
+              '.flutter-plugins', '.flutter-plugins-dependencies', '.packages',
+              'local.properties', 'apply_round4_patch.py', '.mizan_round4.patch'
+          }
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or relative.parts[0] in excluded_roots:
+                  continue
+              if source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Round 4 doğrulanmış kaynak: {archive} ({archive.stat().st_size} bayt)')
+          PY
+
+      - name: Upload exact verified Round 4 source
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-round4-verified-source
+          path: dist/LEFFERION-PRIME-MIZAN-ROUND4-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
