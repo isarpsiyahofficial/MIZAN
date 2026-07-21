@@ -1,4 +1,4 @@
-name: Assemble, verify and build MIZAN
+name: MIZAN consolidated final verification
 
 on:
   push:
@@ -8,196 +8,133 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  assemble-quality-build:
+  verify-final:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+
       - name: Check out actual pull request branch
         if: github.event_name == 'pull_request'
         run: |
           git fetch origin "$GITHUB_HEAD_REF" --depth=1
           git checkout -B "$GITHUB_HEAD_REF" FETCH_HEAD
-      - name: Assemble transparent source fragments
-        run: python3 tools/assemble_source.py
-      - name: Apply CI-confirmed source corrections
+
+      - name: Download latest verified phone source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-phone-feedback-verified-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29778390280
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore SHA-verified phone source and final patch layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          archives = sorted((root / '.baseline-artifact').glob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = 'f12213eabfacba455c5bab593b069020bf661a1ba1ba519a6fdf6f59650f069b'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak ZIP SHA uyuşmuyor: {actual} != {expected}')
+
+          extract = Path('/tmp/mizan-final-base')
+          preserve = Path('/tmp/mizan-final-preserve')
+          shutil.rmtree(extract, ignore_errors=True)
+          shutil.rmtree(preserve, ignore_errors=True)
+          extract.mkdir(parents=True)
+          preserve.mkdir(parents=True)
+          with zipfile.ZipFile(archive) as zf:
+              zf.extractall(extract)
+          source = extract / 'LEFFERION-PRIME-MIZAN-PHONE-FEEDBACK'
+          if not source.is_dir():
+              raise SystemExit(f'Kaynak kökü bulunamadı: {source}')
+
+          keep = [
+              Path('.github/workflows/assemble-source.yml'),
+              Path('tools/apply_round3_patch.py'),
+              Path('round3_patch_chunks_v2'),
+              Path('round3_newfiles_chunks'),
+          ]
+          for relative in keep:
+              current = root / relative
+              target = preserve / relative
+              if current.is_dir():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copytree(current, target)
+              elif current.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(current, target)
+              else:
+                  raise SystemExit(f'Korunacak final dosyası eksik: {relative}')
+
+          for child in root.iterdir():
+              if child.name == '.git':
+                  continue
+              if child.is_dir():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+          for child in source.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target)
+              else:
+                  shutil.copy2(child, target)
+          for child in preserve.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target, dirs_exist_ok=True)
+              else:
+                  shutil.copy2(child, target)
+          print(f'Final kaynak tabanı geri yüklendi: SHA-256 {actual}')
+          PY
+
+      - name: Apply SHA-verified final Round 3 revision
         shell: bash
         run: |
           mkdir -p ci-logs
-          exec > >(tee ci-logs/patch.log) 2>&1
-          set -e
-          python3 - <<'PY'
-          import binascii
-          import struct
-          import zlib
-          from pathlib import Path
+          set -o pipefail
+          python3 tools/apply_round3_patch.py 2>&1 | tee ci-logs/final-patch.log
 
-          root = Path('.')
-
-          path = root / 'lib/core/theme.dart'
-          text = path.read_text(encoding='utf-8').replace('cardTheme: CardTheme(', 'cardTheme: CardThemeData(')
-          path.write_text(text, encoding='utf-8')
-
-          path = root / 'lib/models/mizan_models.dart'
-          text = path.read_text(encoding='utf-8').replace('.fold(0,', '.fold<double>(0.0,')
-          path.write_text(text, encoding='utf-8')
-
-          path = root / 'lib/services/notification_service.dart'
-          text = path.read_text(encoding='utf-8')
-          text = text.replace('timezone.name', 'timezone.identifier')
-          text = text.replace('scheduleMode: mode,', 'androidScheduleMode: mode,')
-          path.write_text(text, encoding='utf-8')
-
-          path = root / 'lib/controllers/mizan_controller.dart'
-          text = path.read_text(encoding='utf-8')
-          text = text.replace(
-              "  MizanController(\n    this._store, {\n    ReminderScheduler scheduler = const NoopReminderScheduler(),\n  }) : _scheduler = scheduler;",
-              "  MizanController(\n    this._store, {\n    this._scheduler = const NoopReminderScheduler(),\n  });",
-          )
-          for message in ('Ödeme kaynağı bulunamadı.', 'Not kaynağı bulunamadı.'):
-              text = text.replace(
-                  f"    }}\n    throw ArgumentError('{message}');\n  }}",
-                  "    }\n  }",
-              )
-          path.write_text(text, encoding='utf-8')
-
-          path = root / 'lib/screens/record_form_dialogs.dart'
-          text = path.read_text(encoding='utf-8')
-          start = text.find('String? _positiveNumber(')
-          if start != -1:
-              end = text.find('\n\nclass _PersonForm', start)
-              text = text[:start] + text[end + 2:]
-          path.write_text(text, encoding='utf-8')
-
-          for relative in ('.github/workflows/android-release.yml', 'tools/validate_project.py'):
-              path = root / relative
-              text = path.read_text(encoding='utf-8').replace('flutter analyze --fatal-infos', 'flutter analyze --fatal-warnings')
-              path.write_text(text, encoding='utf-8')
-
-          widget_test = root / 'test/widget_test.dart'
-          widget_test.write_text("""import 'package:flutter_test/flutter_test.dart';
-          import 'package:lefferion_prime_mizan/controllers/mizan_controller.dart';
-          import 'package:lefferion_prime_mizan/main.dart';
-          import 'package:lefferion_prime_mizan/models/mizan_models.dart';
-          import 'package:lefferion_prime_mizan/services/local_store.dart';
-
-          class _MemoryStore implements MizanStore {
-            _MemoryStore(this.state);
-            MizanState state;
-            @override
-            Future<StoreLoadResult> load() async => StoreLoadResult(state: state, source: StoreLoadSource.primary);
-            @override
-            Future<void> reset(MizanState value) async => state = value;
-            @override
-            Future<void> save(MizanState value) async => state = value;
-          }
-
-          void main() {
-            testWidgets('uygulama ana başlığı açılır', (tester) async {
-              final controller = MizanController(_MemoryStore(MizanState.seed()));
-              await controller.load();
-              await tester.pumpWidget(MizanApp(controller: controller));
-              await tester.pumpAndSettle();
-              expect(find.text('LEFFERION PRIME - MIZAN'), findsOneWidget);
-              expect(tester.takeException(), isNull);
-            });
-          }
-          """, encoding='utf-8')
-
-          size = 512
-          scale = 2
-          high = size * scale
-          transparent = (0, 0, 0, 0)
-          cream = (250, 249, 246, 255)
-          green = (112, 128, 105, 255)
-          gold = (191, 149, 64, 255)
-          dark_gold = (172, 128, 47, 255)
-          pixels = [[transparent for _ in range(high)] for _ in range(high)]
-          center = high / 2
-
-          for y in range(high):
-              for x in range(high):
-                  dx = x + 0.5 - center
-                  dy = y + 0.5 - center
-                  radius = (dx * dx + dy * dy) ** 0.5
-                  color = transparent
-                  if radius <= 190 * scale:
-                      color = cream
-                  if 177 * scale <= radius <= 184 * scale:
-                      color = green
-                  if 165 * scale <= radius <= 169 * scale:
-                      color = gold
-                  if 128 * scale <= radius <= 131 * scale:
-                      color = dark_gold
-
-                  in_l = (
-                      187 * scale <= x <= 221 * scale and 145 * scale <= y <= 346 * scale
-                  ) or (
-                      187 * scale <= x <= 301 * scale and 311 * scale <= y <= 346 * scale
-                  )
-                  if in_l:
-                      color = green
-
-                  in_p_stem = 242 * scale <= x <= 268 * scale and 164 * scale <= y <= 346 * scale
-                  px = (x - 274 * scale) / (72 * scale)
-                  py = (y - 216 * scale) / (59 * scale)
-                  outer = px * px + py * py <= 1
-                  inner_px = (x - 274 * scale) / (46 * scale)
-                  inner_py = (y - 216 * scale) / (34 * scale)
-                  inner = inner_px * inner_px + inner_py * inner_py < 1
-                  in_p_loop = outer and not inner and x >= 250 * scale and y <= 278 * scale
-                  if in_p_stem or in_p_loop:
-                      color = gold
-                  pixels[y][x] = color
-
-          rgba = bytearray()
-          for y in range(size):
-              for x in range(size):
-                  samples = [
-                      pixels[y * scale + oy][x * scale + ox]
-                      for oy in range(scale)
-                      for ox in range(scale)
-                  ]
-                  for channel in range(4):
-                      rgba.append(round(sum(pixel[channel] for pixel in samples) / len(samples)))
-
-          def png_chunk(kind, data):
-              crc = binascii.crc32(kind + data) & 0xffffffff
-              return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', crc)
-
-          rows = bytearray()
-          stride = size * 4
-          for y in range(size):
-              rows.append(0)
-              rows.extend(rgba[y * stride:(y + 1) * stride])
-          png = bytearray(b'\x89PNG\r\n\x1a\n')
-          png.extend(png_chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0)))
-          png.extend(png_chunk(b'IDAT', zlib.compress(bytes(rows), 9)))
-          png.extend(png_chunk(b'IEND', b''))
-          logo = root / 'assets/brand/lefferion-prime-logo.png'
-          logo.write_bytes(bytes(png))
-          print(f'Şeffaf LP adaptif ikon üretildi: {len(png)} bayt.')
-          PY
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
+
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.44.0"
+          flutter-version: '3.44.0'
           channel: stable
           cache: true
+
       - name: Generate Android project
         run: flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+
       - name: Configure Android
         run: python3 tools/configure_android.py
-      - name: Dependencies
+
+      - name: Resolve dependencies
         run: flutter pub get
-      - name: Format and parse
+
+      - name: Format source
         run: dart format lib test
-      - name: Run complete diagnostics
+
+      - name: Run complete final diagnostics
         shell: bash
         run: |
           mkdir -p ci-logs
@@ -216,65 +153,83 @@ jobs:
           run_check launcher dart run flutter_launcher_icons
           run_check analyze flutter analyze --fatal-warnings
           run_check requirements python3 tools/validate_project.py
+          run_check pdf flutter test test/pdf_report_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart --reporter expanded
+          run_check installment flutter test test/final_installment_period_test.dart --reporter expanded
           run_check tests flutter test --reporter expanded
           run_check apk flutter build apk --release
-      - name: Upload visual review screenshots
+
+      - name: Upload final screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-ui-screenshots
+          name: mizan-final-ui-screenshots
           path: test/goldens/*.png
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
-      - name: Upload diagnostic logs
+
+      - name: Upload final diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-ci-diagnostics
+          name: mizan-final-ci-diagnostics
           path: ci-logs/
           if-no-files-found: error
           retention-days: 14
-      - name: Upload APK if generated
+
+      - name: Upload final APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-unsigned-release
+          name: lefferion-prime-mizan-final-unsigned-release
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: ignore
           retention-days: 30
-      - name: Enforce all checks
+
+      - name: Enforce every final gate
         if: always()
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          result_file = Path('ci-logs/results.txt')
-          if not result_file.exists():
-              raise SystemExit('Tanılama sonuç dosyası oluşturulamadı. patch.log dosyasını inceleyin.')
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements', 'pdf',
+              'reports', 'installment', 'tests', 'apk'
+          }
+          path = Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Final sonuç dosyası oluşturulamadı.')
           results = {}
-          for line in result_file.read_text().splitlines():
+          for line in path.read_text().splitlines():
               name, code = line.split('=', 1)
               results[name] = int(code)
+          missing = sorted(expected - results.keys())
           failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan final kontrolleri: {missing}')
           if failed:
-              raise SystemExit(f"Başarısız kontroller: {failed}")
-          print('Tüm kontroller başarılı.')
+              raise SystemExit(f'Başarısız final kontrolleri: {failed}')
+          print('MİZAN bütün final doğrulama kapılarını geçti.')
           PY
-      - name: Package exact verified Flutter source
+
+      - name: Package exact verified final source
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import shutil
           import zipfile
-
           root = Path.cwd()
-          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN'
-          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-SOURCE.zip'
-          if stage.parent.exists():
-              shutil.rmtree(stage.parent)
+          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN-FINAL'
+          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-FINAL-SOURCE.zip'
+          shutil.rmtree(stage.parent, ignore_errors=True)
           stage.mkdir(parents=True)
-
-          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist'}
-          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages'}
+          excluded_roots = {
+              '.git', '.dart_tool', 'build', 'ci-logs', 'dist',
+              'round3_patch_chunks_v2', 'round3_newfiles_chunks'
+          }
+          excluded_files = {
+              '.flutter-plugins', '.flutter-plugins-dependencies', '.packages',
+              'local.properties', 'apply_round3_patch.py'
+          }
           for source in root.rglob('*'):
               relative = source.relative_to(root)
               if not relative.parts:
@@ -287,17 +242,17 @@ jobs:
               elif source.is_file():
                   target.parent.mkdir(parents=True, exist_ok=True)
                   shutil.copy2(source, target)
-
-          with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as output:
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
               for source in stage.rglob('*'):
                   if source.is_file():
                       output.write(source, source.relative_to(stage.parent))
-          print(f'Doğrulanmış kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
+          print(f'Final kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
           PY
-      - name: Upload exact verified project source ZIP
+
+      - name: Upload exact verified final source
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-verified-source
-          path: dist/LEFFERION-PRIME-MIZAN-SOURCE.zip
+          name: lefferion-prime-mizan-final-verified-source
+          path: dist/LEFFERION-PRIME-MIZAN-FINAL-SOURCE.zip
           if-no-files-found: error
           retention-days: 30
