@@ -37,11 +37,7 @@ def decode_patch(
         raise SystemExit(f"{label} contains an empty chunk.")
 
     encoded = "".join(pieces)
-    try:
-        compressed = base64.b64decode(encoded, validate=True)
-    except Exception as error:
-        raise SystemExit(f"{label} base64 is invalid: {error}") from error
-
+    compressed = base64.b64decode(encoded, validate=True)
     compressed_sha = hashlib.sha256(compressed).hexdigest()
     if compressed_sha != compressed_sha_expected:
         raise SystemExit(
@@ -49,11 +45,7 @@ def decode_patch(
             f"{compressed_sha} != {compressed_sha_expected}"
         )
 
-    try:
-        patch = lzma.decompress(compressed)
-    except Exception as error:
-        raise SystemExit(f"{label} cannot be decompressed: {error}") from error
-
+    patch = lzma.decompress(compressed)
     patch_sha = hashlib.sha256(patch).hexdigest()
     if patch_sha != patch_sha_expected:
         raise SystemExit(
@@ -88,27 +80,37 @@ def apply_patch(label: str, filename: str, patch: bytes) -> None:
 
 def replace_once(path: Path, old: str, new: str, label: str) -> None:
     text = path.read_text(encoding="utf-8")
-    if old not in text:
-        if new in text:
-            return
-        awaited_calls = {
-            "await reminder frequency update": (
-                "controller.setPaymentReminderFrequency(value);"
-            ),
-            "await notification sound update": (
-                "controller.setNotificationSoundMode(value);"
-            ),
-        }
-        call = awaited_calls.get(label)
-        if call is not None:
-            awaited = f"await {call}"
-            if awaited in text:
-                return
-            if call in text:
-                path.write_text(text.replace(call, awaited, 1), encoding="utf-8")
-                return
-        raise SystemExit(f"Round 3 compatibility target not found: {label}")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    if old in text:
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return
+    if new in text:
+        return
+    raise SystemExit(f"Round 3 compatibility target not found: {label}")
+
+
+def ensure_async_value_callback(path: Path, call: str, label: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    call_pos = text.find(call)
+    if call_pos < 0:
+        raise SystemExit(f"Notification callback call not found: {label}")
+
+    awaited_call = f"await {call}"
+    if awaited_call not in text:
+        text = text.replace(call, awaited_call, 1)
+        call_pos = text.find(awaited_call)
+    else:
+        call_pos = text.find(awaited_call)
+
+    async_marker = ": (value) async {"
+    plain_marker = ": (value) {"
+    async_pos = text.rfind(async_marker, 0, call_pos)
+    plain_pos = text.rfind(plain_marker, 0, call_pos)
+    if async_pos < plain_pos:
+        if plain_pos < 0 or call_pos - plain_pos > 500:
+            raise SystemExit(f"Notification callback declaration not found: {label}")
+        text = text[:plain_pos] + async_marker + text[plain_pos + len(plain_marker) :]
+
+    path.write_text(text, encoding="utf-8")
 
 
 main_patch = decode_patch(
@@ -159,34 +161,19 @@ replace_once(
     "    final working = {...selectedPersonIds};",
     "final report person selection",
 )
-replace_once(
-    ROOT / "lib/screens/settings_screen.dart",
-    """                    : (value) {
-                         if (value != null) {
-                           controller.setPaymentReminderFrequency(value);
-                         }
-                       },""",
-    """                    : (value) async {
-                         if (value != null) {
-                           await controller.setPaymentReminderFrequency(value);
-                         }
-                       },""",
-    "await reminder frequency update",
+
+settings_path = ROOT / "lib/screens/settings_screen.dart"
+ensure_async_value_callback(
+    settings_path,
+    "controller.setPaymentReminderFrequency(value);",
+    "payment reminder frequency",
 )
-replace_once(
-    ROOT / "lib/screens/settings_screen.dart",
-    """                    : (value) {
-                         if (value != null) {
-                           controller.setNotificationSoundMode(value);
-                         }
-                       },""",
-    """                    : (value) async {
-                         if (value != null) {
-                           await controller.setNotificationSoundMode(value);
-                         }
-                       },""",
-    "await notification sound update",
+ensure_async_value_callback(
+    settings_path,
+    "controller.setNotificationSoundMode(value);",
+    "notification sound mode",
 )
+
 replace_once(
     ROOT / "lib/services/pdf_report_service.dart",
     "const Rect.fromLTWH(0, 0, pageWidth.toDouble(), pageHeight.toDouble())",
@@ -200,13 +187,20 @@ report_test_text = report_test_text.replace(
     "const MizanReportService().build(",
     "MizanReportService().build(",
 )
-report_test_text = report_test_text.replace(
-    "const ReportFilter(",
-    "ReportFilter(",
-)
+report_test_text = report_test_text.replace("const ReportFilter(", "ReportFilter(")
 if "const MizanReportService().build(" in report_test_text:
     raise SystemExit("Const report-service invocation remains in tests.")
 report_test.write_text(report_test_text, encoding="utf-8")
+
+pdf_test = ROOT / "test/pdf_report_test.dart"
+pdf_test_text = pdf_test.read_text(encoding="utf-8")
+pdf_test_text = pdf_test_text.replace(
+    "testWidgets('PDF raporu geçerli PDF üretir ve ayrıntılarda taşmaz', (tester) async {",
+    "test('PDF raporu geçerli PDF üretir ve ayrıntılarda taşmaz', () async {",
+)
+if "testWidgets('PDF raporu" in pdf_test_text:
+    raise SystemExit("PDF test still runs in fake widget time.")
+pdf_test.write_text(pdf_test_text, encoding="utf-8")
 
 model_path = ROOT / "lib/models/mizan_models.dart"
 replace_once(
@@ -263,6 +257,8 @@ void main() {
     );
     final state = MizanState(
       people: [person],
+      expenseCategories: const [],
+      expenses: const [],
       notificationSlots: defaultNotificationSlots,
     );
 
@@ -291,4 +287,4 @@ missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file(
 if missing:
     raise SystemExit(f"Round 3 new files are missing after patch application: {missing}")
 
-print("MIZAN round 3 complete revision and compatibility fixes applied.")
+print("MIZAN round 3 complete revision and final compatibility fixes applied.")
