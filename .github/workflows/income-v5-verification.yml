@@ -1,0 +1,269 @@
+name: MIZAN income v5 verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-income-v5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out actual pull request branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "$GITHUB_HEAD_REF" --depth=1
+          git checkout -B "$GITHUB_HEAD_REF" FETCH_HEAD
+
+      - name: Download exact current verified final source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-final-verified-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29864049470
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore SHA-verified current source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          archives = sorted((root / '.baseline-artifact').glob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek final kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = '97998e07b8645493c27a08b1ab772944c6cbf50f5ec83dd72b6f7d249d8b5e18'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Final kaynak ZIP SHA uyuşmuyor: {actual} != {expected}')
+
+          extract = Path('/tmp/mizan-income-v5-base')
+          preserve = Path('/tmp/mizan-income-v5-preserve')
+          shutil.rmtree(extract, ignore_errors=True)
+          shutil.rmtree(preserve, ignore_errors=True)
+          extract.mkdir(parents=True)
+          preserve.mkdir(parents=True)
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall(extract)
+          source = extract / 'LEFFERION-PRIME-MIZAN-FINAL'
+          if not source.is_dir():
+              raise SystemExit(f'Final kaynak kökü bulunamadı: {source}')
+
+          keep = [
+              Path('.github/workflows/income-v5-verification.yml'),
+              Path('tools/apply_income_v5_patch.py'),
+              Path('income_v5_patch_chunks'),
+          ]
+          for relative in keep:
+              current = root / relative
+              target = preserve / relative
+              if current.is_dir():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copytree(current, target)
+              elif current.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(current, target)
+              else:
+                  raise SystemExit(f'Korunacak income v5 dosyası eksik: {relative}')
+
+          for child in root.iterdir():
+              if child.name == '.git':
+                  continue
+              if child.is_dir():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+          for child in source.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target)
+              else:
+                  shutil.copy2(child, target)
+          for child in preserve.iterdir():
+              target = root / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target, dirs_exist_ok=True)
+              else:
+                  shutil.copy2(child, target)
+
+          required = [
+              'lib/models/mizan_models.dart',
+              'lib/screens/dashboard_screen.dart',
+              'lib/screens/reports_screen.dart',
+              'test/pdf_report_test.dart',
+              'tools/apply_income_v5_patch.py',
+          ]
+          missing = [relative for relative in required if not (root / relative).is_file()]
+          if missing:
+              raise SystemExit(f'Final kaynak eksik dosya içeriyor: {missing}')
+          print(f'Güncel final kaynak geri yüklendi: SHA-256 {actual}')
+          PY
+
+      - name: Apply SHA-verified income v5 revision
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          set -o pipefail
+          python3 tools/apply_income_v5_patch.py 2>&1 | tee ci-logs/income-v5-patch.log
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        run: flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+
+      - name: Configure Android
+        run: python3 tools/configure_android.py
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Format source
+        run: dart format lib test
+
+      - name: Run complete income v5 diagnostics
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check income flutter test test/income_monthly_due_notification_v5_test.dart --reporter expanded
+          run_check reminders flutter test test/reminder_engine_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart --reporter expanded
+          run_check pdf flutter test test/pdf_report_test.dart --reporter expanded
+          run_check tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+      - name: Upload income v5 screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-income-v5-ui-screenshots
+          path: test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload income v5 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-income-v5-ci-diagnostics
+          path: ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload income v5 APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-income-v5-unsigned-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Enforce every income v5 gate
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements', 'income',
+              'reminders', 'reports', 'pdf', 'tests', 'apk'
+          }
+          result_file = Path('ci-logs/results.txt')
+          if not result_file.exists():
+              raise SystemExit('Income v5 sonuç dosyası oluşturulamadı.')
+          results = {}
+          for line in result_file.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan income v5 kontrolleri: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız income v5 kontrolleri: {failed}')
+          print('MİZAN income v5 bütün zorunlu kapıları geçti.')
+          PY
+
+      - name: Package exact verified income v5 source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+
+          root = Path.cwd()
+          stage = root / 'dist' / 'LEFFERION-PRIME-MIZAN-INCOME-V5'
+          archive = root / 'dist' / 'LEFFERION-PRIME-MIZAN-INCOME-V5-SOURCE.zip'
+          shutil.rmtree(stage.parent, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {
+              '.git', '.dart_tool', 'build', 'ci-logs', 'dist',
+              'income_v5_patch_chunks'
+          }
+          excluded_files = {
+              '.flutter-plugins', '.flutter-plugins-dependencies', '.packages',
+              'local.properties', 'apply_income_v5_patch.py',
+              '.mizan_income_v5.patch'
+          }
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts:
+                  continue
+              if relative.parts[0] in excluded_roots or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Income v5 kaynak ZIP: {archive} ({archive.stat().st_size} bayt)')
+          PY
+
+      - name: Upload exact verified income v5 source
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-income-v5-verified-source
+          path: dist/LEFFERION-PRIME-MIZAN-INCOME-V5-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
