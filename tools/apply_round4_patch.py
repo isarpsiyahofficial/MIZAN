@@ -52,6 +52,33 @@ elif new_validator_token not in validator_text:
     raise SystemExit('Round 4 bildirim planı doğrulama hedefi bulunamadı.')
 validator_path.write_text(validator_text, encoding='utf-8')
 
+configure_path = ROOT / 'tools/configure_android.py'
+configure_text = configure_path.read_text(encoding='utf-8')
+old_permission_block = '''if "android.permission.POST_NOTIFICATIONS" not in text:
+    text = text.replace("<manifest xmlns:android=\\"http://schemas.android.com/apk/res/android\\">", "<manifest xmlns:android=\\"http://schemas.android.com/apk/res/android\\">\\n" + permissions)'''
+new_permission_block = '''manifest_tag = "<manifest xmlns:android=\\"http://schemas.android.com/apk/res/android\\">"
+for permission_name in (
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.RECEIVE_BOOT_COMPLETED",
+    "android.permission.SCHEDULE_EXACT_ALARM",
+    "android.permission.USE_FULL_SCREEN_INTENT",
+    "android.permission.VIBRATE",
+):
+    if permission_name not in text:
+        permission_line = (
+            f'    <uses-permission android:name="{permission_name}" />\\n'
+        )
+        text = text.replace(manifest_tag, manifest_tag + "\\n" + permission_line, 1)'''
+if old_permission_block in configure_text:
+    configure_text = configure_text.replace(
+        old_permission_block,
+        new_permission_block,
+        1,
+    )
+elif 'for permission_name in (' not in configure_text:
+    raise SystemExit('Android izin ekleme bloğu bulunamadı.')
+configure_path.write_text(configure_text, encoding='utf-8')
+
 required = {
     'lib/models/mizan_models.dart': [
         'const int currentSchemaVersion = 7;',
@@ -71,6 +98,11 @@ required = {
     ],
     'lib/screens/record_form_dialogs.dart': ['Manuel gecikme günü (opsiyonel)'],
     'tools/validate_project.py': ['alarmRepeatMode.minutes'],
+    'tools/configure_android.py': [
+        'for permission_name in (',
+        'android.permission.USE_FULL_SCREEN_INTENT',
+        'android.permission.VIBRATE',
+    ],
 }
 for relative, tokens in required.items():
     text = (ROOT / relative).read_text(encoding='utf-8')
