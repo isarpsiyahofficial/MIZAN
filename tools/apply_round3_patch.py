@@ -146,29 +146,29 @@ replace_once(
 replace_once(
     ROOT / "lib/screens/settings_screen.dart",
     """                    : (value) {
-                        if (value != null) {
-                          controller.setPaymentReminderFrequency(value);
-                        }
-                      },""",
+                         if (value != null) {
+                           controller.setPaymentReminderFrequency(value);
+                         }
+                       },""",
     """                    : (value) async {
-                        if (value != null) {
-                          await controller.setPaymentReminderFrequency(value);
-                        }
-                      },""",
+                         if (value != null) {
+                           await controller.setPaymentReminderFrequency(value);
+                         }
+                       },""",
     "await reminder frequency update",
 )
 replace_once(
     ROOT / "lib/screens/settings_screen.dart",
     """                    : (value) {
-                        if (value != null) {
-                          controller.setNotificationSoundMode(value);
-                        }
-                      },""",
+                         if (value != null) {
+                           controller.setNotificationSoundMode(value);
+                         }
+                       },""",
     """                    : (value) async {
-                        if (value != null) {
-                          await controller.setNotificationSoundMode(value);
-                        }
-                      },""",
+                         if (value != null) {
+                           await controller.setNotificationSoundMode(value);
+                         }
+                       },""",
     "await notification sound update",
 )
 replace_once(
@@ -192,11 +192,84 @@ if "const MizanReportService().build(" in report_test_text:
     raise SystemExit("Const report-service invocation remains in tests.")
 report_test.write_text(report_test_text, encoding="utf-8")
 
+model_path = ROOT / "lib/models/mizan_models.dart"
+replace_once(
+    model_path,
+    """            amount: rent.remainingAmount,
+            dueDate: rent.dueDate,""",
+    """            amount: rent.scheduledPaymentAmount,
+            dueDate: rent.dueDate,""",
+    "upcoming rent and installment period amount",
+)
+replace_once(
+    model_path,
+    """              rent.isDueInMonth(month),
+        )
+        .fold<double>(0.0, (sum, rent) => sum + rent.remainingAmount);""",
+    """              rent.isDueInMonth(month),
+        )
+        .fold<double>(
+          0.0,
+          (sum, rent) => sum + rent.scheduledPaymentAmount,
+        );""",
+    "monthly rent and installment period amount",
+)
+
+final_installment_test = ROOT / "test/final_installment_period_test.dart"
+final_installment_test.write_text(
+    """import 'package:flutter_test/flutter_test.dart';
+import 'package:lefferion_prime_mizan/models/mizan_models.dart';
+
+void main() {
+  test('kira ve taksit aylık yükü kalan bakiye yerine dönem tutarıdır', () {
+    final rent = RentEntry(
+      id: 'rent-final',
+      title: 'Ürün taksiti',
+      amount: 24000,
+      paymentDay: 5,
+      receiverName: 'İşletme',
+      dueDate: DateTime(2026, 7, 26),
+      installmentCount: 12,
+      currentInstallment: 1,
+      payments: [
+        PaymentRecord(
+          id: 'rent-payment',
+          amount: 2000,
+          paidAt: DateTime(2026, 7, 5),
+          entryType: PaymentEntryType.installment,
+        ),
+      ],
+    );
+    final person = PersonAccount(
+      id: 'person-final',
+      name: 'Test',
+      rents: [rent],
+    );
+    final state = MizanState(
+      people: [person],
+      notificationSlots: defaultNotificationSlots,
+    );
+
+    expect(rent.remainingAmount, 22000);
+    expect(rent.scheduledPaymentAmount, closeTo(2200, 0.001));
+    expect(person.monthlyLoadFor(DateTime(2026, 7)), closeTo(2200, 0.001));
+    final reference = state
+        .recordReferencesAt(DateTime(2026, 7, 21))
+        .singleWhere((item) => item.type == RecordType.rent);
+    expect(reference.amount, closeTo(2200, 0.001));
+    expect(reference.amount, isNot(22000));
+  });
+}
+""",
+    encoding="utf-8",
+)
+
 required = [
     ROOT / "lib/services/report_service.dart",
     ROOT / "lib/services/pdf_report_service.dart",
     ROOT / "test/report_service_test.dart",
     ROOT / "test/pdf_report_test.dart",
+    ROOT / "test/final_installment_period_test.dart",
 ]
 missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
 if missing:
