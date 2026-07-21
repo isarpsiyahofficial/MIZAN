@@ -7,14 +7,14 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CHUNKS = ROOT / "round3_patch_chunks"
+CHUNKS = ROOT / "round3_patch_chunks_v2"
 EXPECTED_COMPRESSED_SHA = (
     "e524b6dbaa37c730e751dcab80e19a412af6c155b84a0de2fb4f556b47170fb1"
 )
 EXPECTED_PATCH_SHA = (
     "111b63c5e5edd7e0746719865ee0a615c4fbb5a07fcee24483048e95514168e5"
 )
-EXPECTED_CHUNK_COUNT = 1
+EXPECTED_CHUNK_COUNT = 9
 
 pieces = sorted(CHUNKS.glob("chunk*.txt"))
 if len(pieces) != EXPECTED_CHUNK_COUNT:
