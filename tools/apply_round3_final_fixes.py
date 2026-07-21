@@ -113,12 +113,7 @@ pdf_test = ROOT / 'test/pdf_report_test.dart'
 text = pdf_test.read_text(encoding='utf-8')
 if "import 'dart:io';" not in text:
     text = "import 'dart:io';\n\n" + text
-if "import 'dart:typed_data';" not in text:
-    text = text.replace(
-        "import 'dart:io';\n",
-        "import 'dart:io';\nimport 'dart:typed_data';\n",
-        1,
-    )
+text = text.replace("import 'dart:typed_data';\n", '')
 if "import 'package:flutter/services.dart';" not in text:
     text = text.replace(
         "import 'package:flutter_test/flutter_test.dart';",
@@ -177,5 +172,7 @@ for path, tokens in checks.items():
     missing = [token for token in tokens if token not in content]
     if missing:
         raise SystemExit(f'Final responsive/PDF fix validation failed for {path}: {missing}')
+if "import 'dart:typed_data';" in pdf_test.read_text(encoding='utf-8'):
+    raise SystemExit('Analyzer-clean PDF test still contains unnecessary typed_data import.')
 
 print('Round 3 final responsive dialog and Unicode PDF sample fixes applied.')
