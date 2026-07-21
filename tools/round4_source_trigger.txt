@@ -1,0 +1,1 @@
+Round 4 source snapshot trigger: payment modes, alarm notifications, structured PDF, optional manual delay days.
