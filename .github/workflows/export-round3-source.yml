@@ -1,6 +1,8 @@
 name: Export MIZAN Round 3 source
 
 on:
+  push:
+    branches: [agent/mizan-safe-clear-ui-v2]
   pull_request:
   workflow_dispatch:
 
