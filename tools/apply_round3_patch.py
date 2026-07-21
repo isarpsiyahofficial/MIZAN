@@ -30,10 +30,10 @@ def _execute_source(source: str, virtual_name: str) -> None:
     exec(compile(source, virtual_name, "exec"), namespace, namespace)
 
 
-# Pull-request checkouts are shallow. Fetch only enough branch history to read
-# the immutable reviewed Round 3 applier commit.
+# Pull-request checkouts are shallow. Fetch enough branch history to read the
+# immutable reviewed Round 3 applier even after later verification commits.
 subprocess.run(
-    ["git", "fetch", "--deepen=4", "origin", BRANCH],
+    ["git", "fetch", "--deepen=20", "origin", BRANCH],
     cwd=ROOT,
     check=True,
 )
