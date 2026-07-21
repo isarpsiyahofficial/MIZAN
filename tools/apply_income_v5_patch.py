@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHUNKS = ROOT / "income_v5_patch_chunks"
 EXPECTED_COMPRESSED_SHA = "06b15e1008ea0edc7d424bbb29f73f31bdada04af5e40a18e062ff4807c6fe43"
 EXPECTED_PATCH_SHA = "5f36a41436cb52395f07675338a2639dcfa5ac8fc2f06275a3b44c99ffad7d76"
-EXPECTED_CHUNK_COUNT = 1
+EXPECTED_CHUNK_COUNT = 7
 
 pieces = sorted(CHUNKS.glob("chunk*.txt"))
 if len(pieces) != EXPECTED_CHUNK_COUNT:
