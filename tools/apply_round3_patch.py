@@ -7,23 +7,15 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CHUNKS = ROOT / "round3_patch_chunks_v2"
-EXPECTED_COMPRESSED_SHA = (
-    "e524b6dbaa37c730e751dcab80e19a412af6c155b84a0de2fb4f556b47170fb1"
-)
-EXPECTED_PATCH_SHA = (
-    "111b63c5e5edd7e0746719865ee0a615c4fbb5a07fcee24483048e95514168e5"
-)
-EXPECTED_CHUNK_COUNT = 9
 
 
-def read_chunk(index: int) -> str:
+def read_chunk(directory: str, index: int) -> str:
     name = f"chunk{index:02d}.txt"
-    path = CHUNKS / name
+    path = ROOT / directory / name
     if path.is_file():
         return path.read_text(encoding="utf-8").strip()
     result = subprocess.run(
-        ["git", "show", f"HEAD:round3_patch_chunks_v2/{name}"],
+        ["git", "show", f"HEAD:{directory}/{name}"],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -32,52 +24,96 @@ def read_chunk(index: int) -> str:
     return result.stdout.strip()
 
 
-pieces = [read_chunk(index) for index in range(EXPECTED_CHUNK_COUNT)]
-if any(not piece for piece in pieces):
-    raise SystemExit("Round 3 patch contains an empty chunk.")
+def decode_patch(
+    *,
+    label: str,
+    directory: str,
+    chunk_count: int,
+    compressed_sha_expected: str,
+    patch_sha_expected: str,
+) -> bytes:
+    pieces = [read_chunk(directory, index) for index in range(chunk_count)]
+    if any(not piece for piece in pieces):
+        raise SystemExit(f"{label} contains an empty chunk.")
 
-encoded = "".join(pieces)
-try:
-    compressed = base64.b64decode(encoded, validate=True)
-except Exception as error:
-    raise SystemExit(f"Round 3 patch base64 is invalid: {error}") from error
+    encoded = "".join(pieces)
+    try:
+        compressed = base64.b64decode(encoded, validate=True)
+    except Exception as error:
+        raise SystemExit(f"{label} base64 is invalid: {error}") from error
 
-compressed_sha = hashlib.sha256(compressed).hexdigest()
-if compressed_sha != EXPECTED_COMPRESSED_SHA:
-    raise SystemExit(
-        "Round 3 compressed SHA mismatch: "
-        f"{compressed_sha} != {EXPECTED_COMPRESSED_SHA}"
+    compressed_sha = hashlib.sha256(compressed).hexdigest()
+    if compressed_sha != compressed_sha_expected:
+        raise SystemExit(
+            f"{label} compressed SHA mismatch: "
+            f"{compressed_sha} != {compressed_sha_expected}"
+        )
+
+    try:
+        patch = lzma.decompress(compressed)
+    except Exception as error:
+        raise SystemExit(f"{label} cannot be decompressed: {error}") from error
+
+    patch_sha = hashlib.sha256(patch).hexdigest()
+    if patch_sha != patch_sha_expected:
+        raise SystemExit(
+            f"{label} patch SHA mismatch: {patch_sha} != {patch_sha_expected}"
+        )
+    print(
+        f"{label} decoded: {len(patch)} bytes, "
+        f"compressed SHA-256 {compressed_sha}, patch SHA-256 {patch_sha}."
     )
+    return patch
 
-try:
-    patch = lzma.decompress(compressed)
-except Exception as error:
-    raise SystemExit(f"Round 3 patch cannot be decompressed: {error}") from error
 
-patch_sha = hashlib.sha256(patch).hexdigest()
-if patch_sha != EXPECTED_PATCH_SHA:
-    raise SystemExit(
-        f"Round 3 patch SHA mismatch: {patch_sha} != {EXPECTED_PATCH_SHA}"
-    )
+def apply_patch(label: str, filename: str, patch: bytes) -> None:
+    patch_path = ROOT / filename
+    patch_path.write_bytes(patch)
+    try:
+        subprocess.run(
+            [
+                "git",
+                "apply",
+                "--binary",
+                "--whitespace=nowarn",
+                str(patch_path),
+            ],
+            cwd=ROOT,
+            check=True,
+        )
+    finally:
+        patch_path.unlink(missing_ok=True)
+    print(f"{label} applied successfully.")
 
-patch_path = ROOT / ".mizan_round3.patch"
-patch_path.write_bytes(patch)
-try:
-    subprocess.run(
-        [
-            "git",
-            "apply",
-            "--binary",
-            "--whitespace=nowarn",
-            str(patch_path),
-        ],
-        cwd=ROOT,
-        check=True,
-    )
-finally:
-    patch_path.unlink(missing_ok=True)
 
-print(
-    "MIZAN round 3 patch applied and verified: "
-    f"{len(patch)} bytes, SHA-256 {patch_sha}."
+main_patch = decode_patch(
+    label="MIZAN round 3 main patch",
+    directory="round3_patch_chunks_v2",
+    chunk_count=9,
+    compressed_sha_expected=(
+        "e524b6dbaa37c730e751dcab80e19a412af6c155b84a0de2fb4f556b47170fb1"
+    ),
+    patch_sha_expected=(
+        "111b63c5e5edd7e0746719865ee0a615c4fbb5a07fcee24483048e95514168e5"
+    ),
 )
+new_files_patch = decode_patch(
+    label="MIZAN round 3 report and PDF files patch",
+    directory="round3_newfiles_chunks",
+    chunk_count=4,
+    compressed_sha_expected=(
+        "b9f8a7b7eb92d6a1ee692a6ad3b7a41b98432ba6b0e0a50302950a131e3ceb14"
+    ),
+    patch_sha_expected=(
+        "a97901123ac1b34406f358f6c45d5893fd6d2896660e30e71d0b5aa710dbbcb1"
+    ),
+)
+
+apply_patch("MIZAN round 3 main patch", ".mizan_round3.patch", main_patch)
+apply_patch(
+    "MIZAN round 3 report and PDF files patch",
+    ".mizan_round3_newfiles.patch",
+    new_files_patch,
+)
+
+print("MIZAN round 3 complete revision applied with both verified packages.")
