@@ -132,6 +132,12 @@ replace_once(
     "new payment order assertion",
 )
 replace_once(
+    ROOT / "test/controller_test.dart",
+    "expect(updated.paidInstallmentCount, greaterThanOrEqualTo(1));",
+    "expect(updated.remainingAmount, 7000);",
+    "controller payment balance assertion",
+)
+replace_once(
     ROOT / "lib/screens/reports_screen.dart",
     "    var working = {...selectedPersonIds};",
     "    final working = {...selectedPersonIds};",
@@ -165,6 +171,26 @@ replace_once(
                       },""",
     "await notification sound update",
 )
+replace_once(
+    ROOT / "lib/services/pdf_report_service.dart",
+    "const Rect.fromLTWH(0, 0, pageWidth.toDouble(), pageHeight.toDouble())",
+    "Rect.fromLTWH(0, 0, pageWidth.toDouble(), pageHeight.toDouble())",
+    "non-constant PDF canvas rectangle",
+)
+
+report_test = ROOT / "test/report_service_test.dart"
+report_test_text = report_test.read_text(encoding="utf-8")
+report_test_text = report_test_text.replace(
+    "const MizanReportService().build(",
+    "MizanReportService().build(",
+)
+report_test_text = report_test_text.replace(
+    "const ReportFilter(",
+    "ReportFilter(",
+)
+if "const MizanReportService().build(" in report_test_text:
+    raise SystemExit("Const report-service invocation remains in tests.")
+report_test.write_text(report_test_text, encoding="utf-8")
 
 required = [
     ROOT / "lib/services/report_service.dart",
