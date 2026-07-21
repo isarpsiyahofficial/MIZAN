@@ -1,6 +1,8 @@
-name: MIZAN final verification
+name: MIZAN consolidated final verification
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -30,7 +32,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: .baseline-artifact
 
-      - name: Restore verified source and Round 3 layer
+      - name: Restore SHA-verified phone source and final patch layer
         shell: bash
         run: |
           set -euo pipefail
@@ -102,97 +104,12 @@ jobs:
           print(f'Final kaynak tabanı geri yüklendi: SHA-256 {actual}')
           PY
 
-      - name: Apply SHA-verified Round 3 revision
+      - name: Apply SHA-verified final Round 3 revision
         shell: bash
         run: |
           mkdir -p ci-logs
           set -o pipefail
-          python3 tools/apply_round3_patch.py 2>&1 | tee ci-logs/round3-patch.log
-
-      - name: Correct rent and installment period calculations
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('lib/models/mizan_models.dart')
-          text = path.read_text(encoding='utf-8')
-
-          reference_old = '''            amount: rent.remainingAmount,
-            dueDate: rent.dueDate,'''
-          reference_new = '''            amount: rent.scheduledPaymentAmount,
-            dueDate: rent.dueDate,'''
-          count = text.count(reference_old)
-          if count != 1:
-              raise SystemExit(f'Yaklaşan kira/taksit kayıt bloğu {count} kez bulundu.')
-          text = text.replace(reference_old, reference_new, 1)
-
-          monthly_old = '''              rent.isDueInMonth(month),
-        )
-        .fold<double>(0.0, (sum, rent) => sum + rent.remainingAmount);'''
-          monthly_new = '''              rent.isDueInMonth(month),
-        )
-        .fold<double>(
-          0.0,
-          (sum, rent) => sum + rent.scheduledPaymentAmount,
-        );'''
-          count = text.count(monthly_old)
-          if count != 1:
-              raise SystemExit(f'Aylık kira/taksit yük bloğu {count} kez bulundu.')
-          text = text.replace(monthly_old, monthly_new, 1)
-          path.write_text(text, encoding='utf-8')
-          print('Yaklaşan ve aylık kira/taksit hesapları dönem tutarına bağlandı.')
-          PY
-
-      - name: Add explicit installment period regression test
-        shell: bash
-        run: |
-          cat > test/final_installment_period_test.dart <<'DART'
-          import 'package:flutter_test/flutter_test.dart';
-          import 'package:lefferion_prime_mizan/models/mizan_models.dart';
-
-          void main() {
-            test('kira ve taksit aylık yükü kalan bakiye yerine dönem tutarıdır', () {
-              final rent = RentEntry(
-                id: 'rent-final',
-                title: 'Ürün taksiti',
-                amount: 24000,
-                paymentDay: 5,
-                receiverName: 'İşletme',
-                dueDate: DateTime(2026, 7, 26),
-                installmentCount: 12,
-                currentInstallment: 1,
-                payments: [
-                  PaymentRecord(
-                    id: 'rent-payment',
-                    amount: 2000,
-                    paidAt: DateTime(2026, 7, 5),
-                    entryType: PaymentEntryType.installment,
-                  ),
-                ],
-              );
-              final person = PersonAccount(
-                id: 'person-final',
-                name: 'Test',
-                rents: [rent],
-              );
-              final state = MizanState(
-                people: [person],
-                notificationSlots: defaultNotificationSlots,
-              );
-
-              expect(rent.remainingAmount, 22000);
-              expect(rent.scheduledPaymentAmount, closeTo(2200, 0.001));
-              expect(person.monthlyLoadFor(DateTime(2026, 7)), closeTo(2200, 0.001));
-              final reference = state
-                  .recordReferencesAt(DateTime(2026, 7, 21))
-                  .singleWhere((item) => item.type == RecordType.rent);
-              expect(reference.amount, closeTo(2200, 0.001));
-              expect(reference.amount, isNot(22000));
-            });
-          }
-          DART
+          python3 tools/apply_round3_patch.py 2>&1 | tee ci-logs/final-patch.log
 
       - uses: actions/setup-java@v4
         with:
