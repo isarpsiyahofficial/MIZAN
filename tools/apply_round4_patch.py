@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHUNKS = ROOT / 'round4_patch_chunks'
-EXPECTED_CHUNK_COUNT = 1
+EXPECTED_CHUNK_COUNT = 5
 EXPECTED_COMPRESSED_SHA = '9b05c7d856651d82f72a2c9c2d59e60514229a784bdfef6ec6148d2c57c39f9e'
 EXPECTED_PATCH_SHA = 'b6c3b65cd7ed5cb3b3380ddc4ac910216edc4765d2cb6ed7190eeaaab3f5a3af'
 
