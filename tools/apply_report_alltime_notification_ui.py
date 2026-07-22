@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import subprocess
+import sys
+import tempfile
+import zlib
+from pathlib import Path
+
+PATCH_SHA256 = "420e8c246f6305658cfac5570eb2b9f4a938d32f10f8b1ba43be0a2884ee4e02"
+PATCH_ZLIB_BASE64 = "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"
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("Kullanım: apply_report_alltime_notification_ui.py <kaynak-kökü>")
+    root = Path(sys.argv[1]).resolve()
+    if not (root / "pubspec.yaml").is_file():
+        raise SystemExit(f"Flutter kaynak kökü bulunamadı: {root}")
+
+    patch = zlib.decompress(base64.b64decode(PATCH_ZLIB_BASE64))
+    actual = hashlib.sha256(patch).hexdigest()
+    if actual != PATCH_SHA256:
+        raise SystemExit(f"Patch SHA uyuşmuyor: {actual} != {PATCH_SHA256}")
+
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    with tempfile.NamedTemporaryFile(suffix=".patch", delete=False) as handle:
+        handle.write(patch)
+        patch_path = Path(handle.name)
+    try:
+        subprocess.run(
+            ["git", "apply", "--whitespace=nowarn", str(patch_path)],
+            cwd=root,
+            check=True,
+        )
+    finally:
+        patch_path.unlink(missing_ok=True)
+
+    reports = (root / "lib/screens/reports_screen.dart").read_text(encoding="utf-8")
+    settings = (root / "lib/screens/settings_screen.dart").read_text(encoding="utf-8")
+    validator = (root / "tools/validate_project.py").read_text(encoding="utf-8")
+    tests = "\n".join(
+        (root / path).read_text(encoding="utf-8")
+        for path in [
+            "test/report_service_test.dart",
+            "test/ui_interaction_test.dart",
+            "test/responsive_test.dart",
+        ]
+    )
+    required = [
+        "ReportPeriod.allTime",
+        "Tüm kayıt geçmişi",
+        "Bildirim ve alarm sistemi",
+        "Bildirim türü",
+        "SegmentedButton<NotificationPresentationMode>",
+        "1 dakika sonra test bildirimi",
+        "tüm zamanlarda kişi ve kalan durum filtreleri birlikte çalışır",
+        "320x568 bildirim ayrıntısı taşmasız açılır",
+        "Hatırlatmayı düzenle",
+    ]
+    combined = reports + settings + validator + tests
+    missing = [needle for needle in required if needle not in combined]
+    if missing:
+        raise SystemExit(f"Rapor/bildirim UI düzeltmesi eksik: {missing}")
+    if "class _ModeChoice" in settings or "class _StatusBadge" in settings:
+        raise SystemExit("Eski karmaşık bildirim seçim bileşenleri kaldırılmadı.")
+
+    print(f"Rapor ve bildirim UI patch uygulandı: SHA-256 {actual}")
+
+
+if __name__ == "__main__":
+    main()
