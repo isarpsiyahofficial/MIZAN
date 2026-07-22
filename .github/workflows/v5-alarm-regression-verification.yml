@@ -65,6 +65,9 @@ jobs:
       - name: Apply Round4 alarm and data compatibility safeguards
         run: python3 tools/apply_v5_alarm_regression_fix.py "$SOURCE_ROOT"
 
+      - name: Apply manual overdue status correction
+        run: python3 tools/apply_v5_manual_status_fix.py "$SOURCE_ROOT"
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
