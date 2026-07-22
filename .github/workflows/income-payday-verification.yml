@@ -1,0 +1,261 @@
+name: MIZAN income payday tracking verification
+
+on:
+  push:
+    branches: [agent/mizan-income-payday-tracking]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-EXACT-REMINDER-SAFE-CSV
+
+jobs:
+  verify-income-payday:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout payday patch layer
+        uses: actions/checkout@v4
+
+      - name: Download exact verified previous source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-exact-reminder-safe-csv-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29921343749
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify and restore exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = 'd84598ed572a55a0e41f8ab04dad55bdf962bfc97f395f4d5cd93ae4fa49e496'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual} != {expected}')
+          workspace = Path('workspace')
+          shutil.rmtree(workspace, ignore_errors=True)
+          workspace.mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall(workspace)
+          root = workspace / 'LEFFERION-PRIME-MIZAN-EXACT-REMINDER-SAFE-CSV'
+          if not (root / 'pubspec.yaml').is_file():
+              raise SystemExit(f'Kaynak kökü bulunamadı: {root}')
+          print(f'Doğrulanmış önceki kaynak geri yüklendi: SHA-256 {actual}')
+          PY
+
+      - name: Apply optional income payday tracking
+        run: python3 tools/apply_income_payday_tracking.py "$SOURCE_ROOT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Generate Android project and configure alarms
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+
+      - name: Resolve dependencies and format
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter pub get
+          dart format lib test
+
+      - name: Run complete payday and regression gates
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check payday flutter test test/income_payday_tracking_test.dart --reporter expanded
+          run_check income flutter test test/income_monthly_due_notification_v5_test.dart --reporter expanded
+          run_check csv flutter test test/csv_backup_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          run_check notification flutter test test/alarm_regression_test.dart test/reminder_engine_test.dart --reporter expanded
+          run_check ui flutter test test/ui_interaction_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+      - name: Verify feature isolation and APK contents
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          unzip -t "$APK" > ci-logs/apk-zip-test.log
+          python3 - <<'PY'
+          from pathlib import Path
+
+          model = Path('lib/models/mizan_models.dart').read_text()
+          controller = Path('lib/controllers/mizan_controller.dart').read_text()
+          dashboard = Path('lib/screens/dashboard_screen.dart').read_text()
+          csv = Path('lib/services/csv_backup_service.dart').read_text()
+          required = {
+              'model': ['class IncomeReceipt', 'scheduledDayOfMonth', 'scheduledWeekday', 'receivedDate', 'trackedOccurrenceAt'],
+              'controller': ['markIncomeReceived', 'undoLatestIncomeReceipt', '_validateIncomeTracking'],
+              'dashboard': ['Yatış gününü takip et', 'Gelir yattı', 'Sabit yatış günü değişmedi'],
+              'csv': ['_mergeIncome', "result['receipts']"],
+          }
+          sources = {'model': model, 'controller': controller, 'dashboard': dashboard, 'csv': csv}
+          missing = {
+              name: [needle for needle in needles if needle not in sources[name]]
+              for name, needles in required.items()
+          }
+          missing = {name: values for name, values in missing.items() if values}
+          if missing:
+              raise SystemExit(f'Gelir yatış günü öğeleri eksik: {missing}')
+          if "const int currentSchemaVersion = 9;" not in model:
+              raise SystemExit('Şema sürümü 9 olarak yükseltilmedi.')
+          manifest = Path('android/app/src/main/AndroidManifest.xml').read_text()
+          for permission in [
+              'android.permission.POST_NOTIFICATIONS',
+              'android.permission.SCHEDULE_EXACT_ALARM',
+              'android.permission.USE_FULL_SCREEN_INTENT',
+              'android.permission.RECEIVE_BOOT_COMPLETED',
+          ]:
+              if permission not in manifest:
+                  raise SystemExit(f'Mevcut alarm izni kayboldu: {permission}')
+          print('Gelir takibi eklendi; mevcut alarm ve veri yapısı korunuyor.')
+          PY
+
+      - name: Enforce every verification gate
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements', 'payday',
+              'income', 'csv', 'reports', 'notification', 'ui', 'responsive',
+              'all_tests', 'apk'
+          }
+          path = Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Sonuç dosyası oluşturulamadı.')
+          results = {}
+          for line in path.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan kapılar: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız kapılar: {failed}')
+          print('MİZAN gelir yatış günü sürümü bütün zorunlu kapıları geçti.')
+          PY
+
+      - name: Package exact verified source
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-EXACT-REMINDER-SAFE-CSV')
+          dist = Path('dist')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-INCOME-PAYDAY-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-INCOME-PAYDAY-FINAL-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages', 'local.properties'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or relative.parts[0] in excluded_roots or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Doğrulanmış kaynak: {archive} ({archive.stat().st_size} bayt)')
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-income-payday-final-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-income-payday-final-screenshots
+          path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload unsigned release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-income-payday-final-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload exact verified source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-income-payday-final-source
+          path: dist/LEFFERION-PRIME-MIZAN-INCOME-PAYDAY-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
