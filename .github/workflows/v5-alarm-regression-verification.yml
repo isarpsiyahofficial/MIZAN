@@ -1,0 +1,222 @@
+name: MIZAN V5 alarm regression verification
+
+on:
+  push:
+    branches: [agent/mizan-v5-alarm-regression-fix]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-INCOME-V5
+
+jobs:
+  verify-v5-with-round4-alarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout regression layer
+        uses: actions/checkout@v4
+
+      - name: Download exact verified V5 source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-income-v5-verified-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29868307597
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify and restore exact V5 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          artifact = Path('.baseline-artifact')
+          archives = sorted(artifact.glob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek V5 kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = '0b353fd1695f3f4dde6aad72f978e4f374afedf5e3915e975dfebc6e066b6b57'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'V5 kaynak SHA uyuşmuyor: {actual} != {expected}')
+          workspace = Path('workspace')
+          shutil.rmtree(workspace, ignore_errors=True)
+          workspace.mkdir()
+          with zipfile.ZipFile(archive) as zf:
+              zf.extractall(workspace)
+          root = workspace / 'LEFFERION-PRIME-MIZAN-INCOME-V5'
+          if not (root / 'pubspec.yaml').is_file():
+              raise SystemExit(f'V5 kaynak kökü bulunamadı: {root}')
+          print(f'V5 kaynak tabanı doğrulandı: SHA-256 {actual}')
+          PY
+
+      - name: Apply Round4 alarm and data compatibility safeguards
+        run: python3 tools/apply_v5_alarm_regression_fix.py "$SOURCE_ROOT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+
+      - name: Configure Android permissions and alarms
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: python3 tools/configure_android.py
+
+      - name: Resolve dependencies
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: flutter pub get
+
+      - name: Format source
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: dart format lib test
+
+      - name: Run complete regression gates
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check v5 flutter test test/income_monthly_due_notification_v5_test.dart --reporter expanded
+          run_check alarm flutter test test/alarm_regression_test.dart --reporter expanded
+          run_check reminders flutter test test/reminder_engine_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart --reporter expanded
+          run_check pdf flutter test test/pdf_report_test.dart --reporter expanded
+          run_check installment flutter test test/final_installment_period_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+      - name: Enforce every gate
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements', 'v5', 'alarm',
+              'reminders', 'reports', 'pdf', 'installment', 'responsive',
+              'all_tests', 'apk'
+          }
+          path = Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Sonuç dosyası oluşturulamadı.')
+          results = {}
+          for line in path.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan kontroller: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız kontroller: {failed}')
+          print('V5 ve Round4 alarm korumaları bütün doğrulama kapılarını geçti.')
+          PY
+
+      - name: Package exact verified corrected source
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-INCOME-V5')
+          dist = Path('dist')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-V5-ALARM-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-V5-ALARM-FINAL-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages', 'local.properties'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or relative.parts[0] in excluded_roots or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Doğrulanmış kaynak: {archive} ({archive.stat().st_size} bayt)')
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-v5-alarm-final-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-v5-alarm-final-ui-screenshots
+          path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload corrected unsigned APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-v5-alarm-final-unsigned-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload exact corrected source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-v5-alarm-final-verified-source
+          path: dist/LEFFERION-PRIME-MIZAN-V5-ALARM-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
