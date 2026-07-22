@@ -49,7 +49,42 @@ def main() -> None:
       46,
     );""",
     )
-    print("Manuel gecikme durumu V5 hesaplamasına bağlandı.")
+    replace_once(
+        root / "test/test_support.dart",
+        """  bool throwOnPermissions = false;
+
+  @override""",
+        """  bool throwOnPermissions = false;
+  bool fullScreenIntentGranted = false;
+
+  @override""",
+    )
+    replace_once(
+        root / "test/test_support.dart",
+        """  Future<NotificationHealth> health() async => const NotificationHealth(
+    permissionGranted: true,
+    exactAlarmGranted: true,
+    initialized: true,
+  );""",
+        """  Future<NotificationHealth> health() async => NotificationHealth(
+    permissionGranted: true,
+    exactAlarmGranted: true,
+    fullScreenIntentGranted: fullScreenIntentGranted,
+    initialized: true,
+  );""",
+    )
+    replace_once(
+        root / "test/test_support.dart",
+        """    return const NotificationHealth(
+      permissionGranted: true,
+      exactAlarmGranted: true,
+      fullScreenIntentGranted: true,
+      initialized: true,
+    );""",
+        """    fullScreenIntentGranted = true;
+    return health();""",
+    )
+    print("Manuel gecikme ve bildirim izin durumu V5 test altyapısına bağlandı.")
 
 
 if __name__ == "__main__":
