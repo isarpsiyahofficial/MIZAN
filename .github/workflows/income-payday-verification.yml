@@ -38,10 +38,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib
-          import shutil
-          import zipfile
-
+          import hashlib, shutil, zipfile
           archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
           if len(archives) != 1:
               raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
@@ -63,6 +60,9 @@ jobs:
 
       - name: Apply optional income payday tracking
         run: python3 tools/apply_income_payday_tracking.py "$SOURCE_ROOT"
+
+      - name: Apply schema and Android build safeguards
+        run: python3 tools/apply_income_payday_build_fix.py "$SOURCE_ROOT"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -97,8 +97,7 @@ jobs:
           mkdir -p ci-logs
           : > ci-logs/results.txt
           run_check() {
-            local name="$1"
-            shift
+            local name="$1"; shift
             set +e
             "$@" >"ci-logs/${name}.log" 2>&1
             local code=$?
@@ -130,18 +129,20 @@ jobs:
           unzip -t "$APK" > ci-logs/apk-zip-test.log
           python3 - <<'PY'
           from pathlib import Path
+          import xml.etree.ElementTree as ET
 
-          model = Path('lib/models/mizan_models.dart').read_text()
-          controller = Path('lib/controllers/mizan_controller.dart').read_text()
-          dashboard = Path('lib/screens/dashboard_screen.dart').read_text()
-          csv = Path('lib/services/csv_backup_service.dart').read_text()
+          sources = {
+              'model': Path('lib/models/mizan_models.dart').read_text(),
+              'controller': Path('lib/controllers/mizan_controller.dart').read_text(),
+              'dashboard': Path('lib/screens/dashboard_screen.dart').read_text(),
+              'csv': Path('lib/services/csv_backup_service.dart').read_text(),
+          }
           required = {
               'model': ['class IncomeReceipt', 'scheduledDayOfMonth', 'scheduledWeekday', 'receivedDate', 'trackedOccurrenceAt'],
               'controller': ['markIncomeReceived', 'undoLatestIncomeReceipt', '_validateIncomeTracking'],
               'dashboard': ['Yatış gününü takip et', 'Gelir yattı', 'Sabit yatış günü değişmedi'],
               'csv': ['_mergeIncome', "result['receipts']"],
           }
-          sources = {'model': model, 'controller': controller, 'dashboard': dashboard, 'csv': csv}
           missing = {
               name: [needle for needle in needles if needle not in sources[name]]
               for name, needles in required.items()
@@ -149,9 +150,12 @@ jobs:
           missing = {name: values for name, values in missing.items() if values}
           if missing:
               raise SystemExit(f'Gelir yatış günü öğeleri eksik: {missing}')
-          if "const int currentSchemaVersion = 9;" not in model:
+          if 'const int currentSchemaVersion = 9;' not in sources['model']:
               raise SystemExit('Şema sürümü 9 olarak yükseltilmedi.')
-          manifest = Path('android/app/src/main/AndroidManifest.xml').read_text()
+
+          manifest_path = Path('android/app/src/main/AndroidManifest.xml')
+          manifest = manifest_path.read_text()
+          ET.parse(manifest_path)
           for permission in [
               'android.permission.POST_NOTIFICATIONS',
               'android.permission.SCHEDULE_EXACT_ALARM',
@@ -160,6 +164,9 @@ jobs:
           ]:
               if permission not in manifest:
                   raise SystemExit(f'Mevcut alarm izni kayboldu: {permission}')
+          for attribute in ['android:showWhenLocked="true"', 'android:turnScreenOn="true"']:
+              if manifest.count(attribute) != 1:
+                  raise SystemExit(f'Android manifest alanı tekil değil: {attribute}')
           print('Gelir takibi eklendi; mevcut alarm ve veri yapısı korunuyor.')
           PY
 
@@ -174,11 +181,11 @@ jobs:
               'income', 'csv', 'reports', 'notification', 'ui', 'responsive',
               'all_tests', 'apk'
           }
-          path = Path('ci-logs/results.txt')
-          if not path.exists():
+          results_path = Path('ci-logs/results.txt')
+          if not results_path.exists():
               raise SystemExit('Sonuç dosyası oluşturulamadı.')
           results = {}
-          for line in path.read_text().splitlines():
+          for line in results_path.read_text().splitlines():
               name, code = line.split('=', 1)
               results[name] = int(code)
           missing = sorted(expected - results.keys())
@@ -196,9 +203,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import shutil
-          import zipfile
-
+          import shutil, zipfile
           root = Path('workspace/LEFFERION-PRIME-MIZAN-EXACT-REMINDER-SAFE-CSV')
           dist = Path('dist')
           stage = dist / 'LEFFERION-PRIME-MIZAN-INCOME-PAYDAY-FINAL'
