@@ -8,7 +8,7 @@ import tempfile
 import zlib
 from pathlib import Path
 
-PATCH_SHA256 = "c8058b45888966c38dfce7604caac0fa09237ecee34e1a21cb549067d4a3e82a"
+PATCH_SHA256 = "9500c8568174712087c19419f79572eb09c2b3cf77cf9fe8af5aab9807cedee0"
 
 
 def main() -> None:
