@@ -1,0 +1,220 @@
+name: MIZAN CSV fixed-list merge verification
+
+on:
+  push:
+    branches: [agent/mizan-csv-fixed-list-fix]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-INCOME-PAYDAY-FINAL
+
+jobs:
+  verify-csv-fixed-list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout CSV fix layer
+        uses: actions/checkout@v4
+
+      - name: Download exact verified previous source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-income-payday-final-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29939025906
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify and restore exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = 'bb0366856c6a36bfc23b44fe2c13b66f6e39adacaa8a4fb518498f5e1d50e55c'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual} != {expected}')
+          workspace = Path('workspace')
+          shutil.rmtree(workspace, ignore_errors=True)
+          workspace.mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall(workspace)
+          root = workspace / 'LEFFERION-PRIME-MIZAN-INCOME-PAYDAY-FINAL'
+          if not (root / 'pubspec.yaml').is_file():
+              raise SystemExit(f'Kaynak kökü bulunamadı: {root}')
+          print(f'Doğrulanmış gelir final kaynağı geri yüklendi: SHA-256 {actual}')
+          PY
+
+      - name: Apply CSV fixed-length list correction
+        run: python3 tools/apply_csv_fixed_list_fix.py "$SOURCE_ROOT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Prepare Android and dependencies
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+
+      - name: Run CSV and full regression gates
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check csv flutter test test/csv_backup_test.dart --reporter expanded
+          run_check income flutter test test/income_payday_tracking_test.dart test/income_monthly_due_notification_v5_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          run_check notification flutter test test/alarm_regression_test.dart test/reminder_engine_test.dart --reporter expanded
+          run_check ui flutter test test/ui_interaction_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+      - name: Verify exact CSV correction and APK
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          unzip -t "$APK" > ci-logs/apk-zip-test.log
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('lib/services/csv_backup_service.dart').read_text()
+          tests = Path('test/csv_backup_test.dart').read_text()
+          if ".map(_cloneMap).toList(growable: true)" not in source:
+              raise SystemExit('Kategori birleştirme listesi büyütülebilir değil.')
+          if "boş kategori listesine yeni kategori ve gider eklenebilir" not in tests:
+              raise SystemExit('Gerçek kullanıcı hatası için regresyon testi yok.')
+          if source.count('final currentCategories = _maps(') != 1:
+              raise SystemExit('CSV kategori birleştirme alanı beklenmeyen biçimde değişti.')
+          print('Yalnız CSV kategori birleştirme listesi düzeltildi; diğer modüller korunuyor.')
+          PY
+
+      - name: Enforce every gate
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'analyze', 'requirements', 'csv', 'income', 'reports',
+              'notification', 'ui', 'responsive', 'all_tests', 'apk'
+          }
+          results = {}
+          path = Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Sonuç dosyası oluşturulamadı.')
+          for line in path.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan kapılar: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız kapılar: {failed}')
+          print('CSV düzeltmesi bütün eski ve yeni kapıları geçti.')
+          PY
+
+      - name: Package exact verified source
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-INCOME-PAYDAY-FINAL')
+          dist = Path('dist')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-CSV-MERGE-FIX-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-CSV-MERGE-FIX-FINAL-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist', '.gradle'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages', 'local.properties'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or any(part in excluded_roots for part in relative.parts) or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Doğrulanmış kaynak: {archive}')
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-csv-merge-fix-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload corrected release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-csv-merge-fix-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload exact corrected source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-csv-merge-fix-source
+          path: dist/LEFFERION-PRIME-MIZAN-CSV-MERGE-FIX-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
