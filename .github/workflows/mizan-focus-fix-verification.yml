@@ -64,6 +64,9 @@ jobs:
       - name: Apply exact reminder, clean UI and safe CSV patch
         run: python3 tools/apply_mizan_focus_fix.py "$SOURCE_ROOT"
 
+      - name: Apply notification compile safeguard
+        run: python3 tools/apply_mizan_compile_fix.py "$SOURCE_ROOT"
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
