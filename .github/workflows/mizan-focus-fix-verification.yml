@@ -1,0 +1,270 @@
+name: MIZAN exact reminder and safe CSV verification
+
+on:
+  push:
+    branches: [agent/mizan-exact-reminder-csv-merge]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-V5-ALARM-FINAL
+
+jobs:
+  verify-focused-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout focused patch layer
+        uses: actions/checkout@v4
+
+      - name: Download exact verified V5 plus Round4 source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-v5-alarm-final-verified-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29900688807
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify and restore exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = '90743c433f919594d7bd92575c9e334404934aaa0ad29ac22922c12152c1e37e'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual} != {expected}')
+          workspace = Path('workspace')
+          shutil.rmtree(workspace, ignore_errors=True)
+          workspace.mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall(workspace)
+          root = workspace / 'LEFFERION-PRIME-MIZAN-V5-ALARM-FINAL'
+          if not (root / 'pubspec.yaml').is_file():
+              raise SystemExit(f'Kaynak kökü bulunamadı: {root}')
+          print(f'Doğrulanmış kaynak geri yüklendi: SHA-256 {actual}')
+          PY
+
+      - name: Apply exact reminder, clean UI and safe CSV patch
+        run: python3 tools/apply_mizan_focus_fix.py "$SOURCE_ROOT"
+
+      - name: Apply notification compile safeguard
+        run: python3 tools/apply_mizan_compile_fix.py "$SOURCE_ROOT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Generate Android project and configure exact alarms
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+
+      - name: Resolve dependencies and format
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter pub get
+          dart format lib test
+
+      - name: Run complete focused and regression gates
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check notification flutter test test/alarm_regression_test.dart test/reminder_engine_test.dart --reporter expanded
+          run_check csv flutter test test/csv_backup_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          run_check ui flutter test test/ui_interaction_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+      - name: Verify exact alarm and non-destructive restore contents
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          unzip -t "$APK" > ci-logs/apk-zip-test.log
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml').read_text()
+          required_manifest = [
+              'android.permission.POST_NOTIFICATIONS',
+              'android.permission.SCHEDULE_EXACT_ALARM',
+              'android.permission.USE_FULL_SCREEN_INTENT',
+              'android.permission.VIBRATE',
+              'android.permission.RECEIVE_BOOT_COMPLETED',
+              'ScheduledNotificationReceiver',
+              'ScheduledNotificationBootReceiver',
+              'android:showWhenLocked="true"',
+              'android:turnScreenOn="true"',
+          ]
+          missing = [item for item in required_manifest if item not in manifest]
+          if missing:
+              raise SystemExit(f'Android alarm öğeleri eksik: {missing}')
+
+          service = Path('lib/services/notification_service.dart').read_text()
+          if 'AndroidScheduleMode.inexactAllowWhileIdle' in service:
+              raise SystemExit('Yaklaşık zamanlama geri dönmüş.')
+          required_service = [
+              'AndroidScheduleMode.exactAllowWhileIdle',
+              'canScheduleExactNotifications',
+              'requestExactAlarmsPermission',
+              'scheduleTestNotification',
+              'requestFullScreenIntentPermission',
+          ]
+          missing_service = [item for item in required_service if item not in service]
+          if missing_service:
+              raise SystemExit(f'Dakik bildirim servisi eksik: {missing_service}')
+
+          settings = Path('lib/screens/settings_screen.dart').read_text()
+          required_settings = [
+              'Hatırlatma ayrıntısı',
+              '1 dakika sonra test et',
+              'CSV yedeğini mevcut verilerle birleştir',
+              'Mevcut kayıtlar silinmeyecek',
+          ]
+          missing_settings = [item for item in required_settings if item not in settings]
+          if missing_settings:
+              raise SystemExit(f'Odak ayar ekranı eksik: {missing_settings}')
+          print('Dakik alarm, sade ayrıntı ekranı ve güvenli CSV kontrolleri geçti.')
+          PY
+
+      - name: Enforce every verification gate
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements', 'notification',
+              'csv', 'reports', 'ui', 'responsive', 'all_tests', 'apk'
+          }
+          path = Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Sonuç dosyası oluşturulamadı.')
+          results = {}
+          for line in path.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan kapılar: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız kapılar: {failed}')
+          print('MİZAN odak düzeltmesi bütün zorunlu kapıları geçti.')
+          PY
+
+      - name: Package exact verified source
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-V5-ALARM-FINAL')
+          dist = Path('dist')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-EXACT-REMINDER-SAFE-CSV'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-EXACT-REMINDER-SAFE-CSV-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages', 'local.properties'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or relative.parts[0] in excluded_roots or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Doğrulanmış kaynak: {archive} ({archive.stat().st_size} bayt)')
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-exact-reminder-safe-csv-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-exact-reminder-safe-csv-screenshots
+          path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload unsigned release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-exact-reminder-safe-csv-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload exact verified source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-exact-reminder-safe-csv-source
+          path: dist/LEFFERION-PRIME-MIZAN-EXACT-REMINDER-SAFE-CSV-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
