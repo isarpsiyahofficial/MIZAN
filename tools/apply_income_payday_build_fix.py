@@ -20,9 +20,10 @@ def main() -> None:
         raise SystemExit(f"Flutter kaynak kökü bulunamadı: {root}")
 
     configure = root / "tools/configure_android.py"
+    old_statement = """text = text.replace('android:launchMode=\"singleTop\"', 'android:launchMode=\"singleTop\"\\n            android:showWhenLocked=\"true\"\\n            android:turnScreenOn=\"true\"')"""
     replace_once(
         configure,
-        """text = text.replace('android:launchMode=\"singleTop\"', 'android:launchMode=\"singleTop\"\\n            android:showWhenLocked=\"true\"\\n            android:turnScreenOn=\"true\"')""",
+        old_statement,
         """if 'android:showWhenLocked=\"true\"' not in text:
     text = text.replace(
         'android:launchMode=\"singleTop\"',
@@ -47,10 +48,14 @@ if 'android:turnScreenOn=\"true\"' not in text:
     )
 
     configure_text = configure.read_text(encoding="utf-8")
-    if configure_text.count("android:showWhenLocked") != 2:
-        raise SystemExit("Android kilit ekranı koruması beklenen idempotent yapıda değil.")
-    if configure_text.count("android:turnScreenOn") != 2:
-        raise SystemExit("Android ekran açma koruması beklenen idempotent yapıda değil.")
+    if old_statement in configure_text:
+        raise SystemExit("Tekrarlı Android alanı ekleyen eski yapılandırma kaldı.")
+    for guard in (
+        "if 'android:showWhenLocked=\"true\"' not in text:",
+        "if 'android:turnScreenOn=\"true\"' not in text:",
+    ):
+        if guard not in configure_text:
+            raise SystemExit(f"Android idempotent koruması eksik: {guard}")
     if "currentSchemaVersion = 9" not in validator.read_text(encoding="utf-8"):
         raise SystemExit("Şema 9 doğrulaması uygulanmadı.")
 
