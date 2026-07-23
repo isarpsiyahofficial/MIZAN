@@ -72,6 +72,7 @@ jobs:
           dart format lib test
           flutter analyze --fatal-warnings
           python3 tools/validate_project.py
+          flutter test test/visual_capture_test.dart --update-goldens
           flutter test test/automatic_notification_sync_test.dart --reporter expanded
           flutter test --reporter expanded
           flutter build apk --release
