@@ -3,6 +3,8 @@ name: MIZAN isolated automatic notification final
 on:
   push:
     branches: [agent/mizan-auto-notification-sync-ci2]
+  pull_request:
+    branches: [ci/notification-verification-base]
   workflow_dispatch:
 
 permissions:
@@ -85,7 +87,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import shutil, zipfile
+          import zipfile
           root = Path('workspace/LEFFERION-PRIME-MIZAN-REPORT-ALLTIME-NOTIFICATION-UI-FINAL')
           out = Path('dist/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL-SOURCE.zip')
           out.parent.mkdir(exist_ok=True)
