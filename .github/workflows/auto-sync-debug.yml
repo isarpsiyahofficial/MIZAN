@@ -1,0 +1,86 @@
+name: MIZAN automatic notification diagnostics
+
+on:
+  pull_request:
+    branches: [ci/notification-verification-base]
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-REPORT-ALLTIME-NOTIFICATION-UI-FINAL
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-report-alltime-notification-ui-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29952061398
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+      - name: Restore and patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          archive = next(Path('.baseline-artifact').rglob('*.zip'))
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == '307e9bbe999b6c71e4cb1d7ca103a9aee7ab6587da04e1e3a5462ab24c968033'
+          shutil.rmtree('workspace', ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as zf: zf.extractall('workspace')
+          PY
+          python3 tools/apply_automatic_notification_sync.py "$SOURCE_ROOT"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Prepare
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+      - name: Capture every gate
+        working-directory: ${{ env.SOURCE_ROOT }}
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          check() {
+            name="$1"; shift
+            set +e
+            "$@" >"ci-logs/$name.log" 2>&1
+            code=$?
+            set -e
+            echo "$name=$code" >> ci-logs/results.txt
+          }
+          check analyze flutter analyze --fatal-warnings
+          check validate python3 tools/validate_project.py
+          check automatic flutter test test/automatic_notification_sync_test.dart --reporter expanded
+          check all flutter test --reporter expanded
+          cat ci-logs/results.txt
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-auto-notification-debug-logs
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          ! grep -Ev '=0$' ci-logs/results.txt
