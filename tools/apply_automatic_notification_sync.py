@@ -41,11 +41,31 @@ def main() -> None:
     finally:
         patch_path.unlink(missing_ok=True)
 
+    test_path = root / "test/automatic_notification_sync_test.dart"
+    test_text = test_path.read_text(encoding="utf-8")
+    old_test = """    await controller.load();
+    scheduler.permissionRequestCount = 0;
+    scheduler.rescheduleCount = 0;
+
+    await controller.setNotificationsEnabled(true);
+"""
+    new_test = """    await controller.load();
+    scheduler.permissionGranted = false;
+    scheduler.exactAlarmGranted = false;
+    scheduler.permissionRequestCount = 0;
+    scheduler.rescheduleCount = 0;
+
+    await controller.setNotificationsEnabled(true);
+"""
+    if test_text.count(old_test) != 1:
+        raise SystemExit("Otomatik izin test düzeltmesi için beklenen blok bulunamadı.")
+    test_path.write_text(test_text.replace(old_test, new_test, 1), encoding="utf-8")
+
     controller = (root / "lib/controllers/mizan_controller.dart").read_text(encoding="utf-8")
     main_dart = (root / "lib/main.dart").read_text(encoding="utf-8")
     settings = (root / "lib/screens/settings_screen.dart").read_text(encoding="utf-8")
     notifications = (root / "lib/services/notification_service.dart").read_text(encoding="utf-8")
-    tests = (root / "test/automatic_notification_sync_test.dart").read_text(encoding="utf-8")
+    tests = test_path.read_text(encoding="utf-8")
 
     required = [
         "_notificationSyncQueue",
@@ -57,6 +77,8 @@ def main() -> None:
         "AndroidScheduleMode.exactAllowWhileIdle",
         "ödeme saati kaydedilince plan ek onay olmadan otomatik yenilenir",
         "uygulama resumed olduğunda manuel butonsuz otomatik planlama yapar",
+        "scheduler.permissionGranted = false",
+        "scheduler.exactAlarmGranted = false",
     ]
     combined = controller + main_dart + settings + notifications + tests
     missing = [item for item in required if item not in combined]
