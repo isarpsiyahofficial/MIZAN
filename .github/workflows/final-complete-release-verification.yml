@@ -1,0 +1,241 @@
+name: MIZAN complete final release verification
+
+on:
+  push:
+    branches: [agent/mizan-final-complete-release]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL
+
+jobs:
+  verify-complete-final-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - name: Checkout final patch layer
+        uses: actions/checkout@v4
+
+      - name: Download exact last verified source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-manual-overdue-sync-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 30090668985
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify, restore and patch exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = 'c87d38b1a6d03ebef79d89df575bf7e4b0f4b8050256aac4532dd8646b8abe48'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual} != {expected}')
+          shutil.rmtree('workspace', ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall('workspace')
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL')
+          if not (root / 'pubspec.yaml').is_file():
+              raise SystemExit(f'Kaynak kökü bulunamadı: {root}')
+          print(f'Son doğrulanmış kaynak geri yüklendi: SHA-256 {actual}')
+          PY
+          python3 tools/apply_mizan_final_complete.py "$SOURCE_ROOT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Capture preparation, tests and release gates
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+
+          run_check flutter_create flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          run_check android_config python3 tools/configure_android.py
+          run_check pub_get flutter pub get
+          run_check format dart format lib test
+
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check expense_browser flutter test test/expense_browser_service_test.dart --reporter expanded
+          run_check variable_bill_rent flutter test test/bill_rent_schedule_test.dart --reporter expanded
+          run_check performance flutter test test/performance_scaling_test.dart --reporter expanded
+          run_check overdue flutter test test/overdue_calendar_tracking_test.dart test/manual_overdue_edit_confirmation_test.dart --reporter expanded
+          run_check models flutter test test/model_test.dart test/final_installment_period_test.dart --reporter expanded
+          run_check storage_controller flutter test test/local_store_test.dart test/controller_test.dart --reporter expanded
+          run_check csv flutter test test/csv_backup_test.dart --reporter expanded
+          run_check notifications flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
+          run_check income flutter test test/income_payday_tracking_test.dart test/income_monthly_due_notification_v5_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+          if [ -s build/app/outputs/flutter-apk/app-release.apk ]; then
+            unzip -t build/app/outputs/flutter-apk/app-release.apk > ci-logs/apk-zip-test.log 2>&1
+          fi
+
+      - name: Verify final source scope
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          required = {
+              'lib/services/expense_browser_service.dart': ['ExpenseBrowserService', 'ExpenseDaySort.highestTotal'],
+              'lib/models/mizan_models.dart': ['BillPeriodAmount', 'RentEntryKind'],
+              'lib/screens/expenses_screen.dart': ['expense-search-field', 'expenses-load-more'],
+              'lib/screens/reports_screen.dart': ['_ReportExpenseGroups'],
+              'lib/services/local_store.dart': ['Isolate.run', '_atomicWrite'],
+              'lib/controllers/mizan_controller.dart': ['_notificationSnapshot'],
+              'test/performance_scaling_test.dart': ['10 bin gider ve 10 bin ödeme'],
+          }
+          failed=[]
+          for path,tokens in required.items():
+              p=Path(path)
+              text=p.read_text() if p.is_file() else ''
+              for token in tokens:
+                  if token not in text:
+                      failed.append(f'{path}:{token}')
+          if failed:
+              raise SystemExit(f'Final kapsam eksik: {failed}')
+          print('Final kaynak kapsamı doğrulandı.')
+          PY
+
+      - name: Enforce every gate
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'flutter_create','android_config','pub_get','format','visuals','launcher',
+              'analyze','requirements','expense_browser','variable_bill_rent','performance',
+              'overdue','models','storage_controller','csv','notifications','income',
+              'reports','responsive','all_tests','apk'
+          }
+          path=Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Sonuç dosyası oluşturulamadı.')
+          results={}
+          for line in path.read_text().splitlines():
+              name,code=line.split('=',1)
+              results[name]=int(code)
+          missing=sorted(expected-results.keys())
+          failed={name:code for name,code in results.items() if code!=0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan kapılar: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız kapılar: {failed}')
+          print('MİZAN final release bütün doğrulama kapılarını geçti.')
+          PY
+
+      - name: Package verified final source
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, zipfile
+          root=Path('workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL')
+          dist=Path('dist')
+          stage=dist/'LEFFERION-PRIME-MIZAN-COMPLETE-FINAL'
+          archive=dist/'LEFFERION-PRIME-MIZAN-COMPLETE-FINAL-SOURCE.zip'
+          shutil.rmtree(dist,ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots={'.git','.dart_tool','build','ci-logs','dist','.gradle'}
+          excluded_files={'.flutter-plugins','.flutter-plugins-dependencies','.packages','local.properties'}
+          for source in root.rglob('*'):
+              relative=source.relative_to(root)
+              if not relative.parts or any(part in excluded_roots for part in relative.parts) or source.name in excluded_files:
+                  continue
+              target=stage/relative
+              if source.is_dir(): target.mkdir(parents=True,exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  shutil.copy2(source,target)
+          with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file(): output.write(source,source.relative_to(stage.parent))
+          with zipfile.ZipFile(archive) as check:
+              bad=check.testzip()
+              if bad: raise SystemExit(f'Kaynak ZIP bozuk: {bad}')
+          print(archive)
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-complete-final-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-complete-final-screenshots
+          path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload final release APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-complete-final-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload final source ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-complete-final-source
+          path: dist/LEFFERION-PRIME-MIZAN-COMPLETE-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
