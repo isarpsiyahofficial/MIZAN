@@ -3,6 +3,8 @@ name: MIZAN isolated performance and expense verification
 on:
   push:
     branches: [agent/mizan-performance-expense-ci]
+  pull_request:
+    branches: [agent/mizan-performance-scaling]
   workflow_dispatch:
 
 permissions:
