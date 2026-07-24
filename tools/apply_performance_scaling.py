@@ -8,7 +8,7 @@ import tempfile
 import zlib
 from pathlib import Path
 
-PATCH_SHA256 = "cf915fb2439be6134bfb7f72e9a0d9876f6170c81d1ec79a8e8abcd0f034b4eb"
+PATCH_SHA256 = "af3f5ea0076a8dc30c6967783dd4501a6a623ffdf340f0a9bb51bcd237fb793d"
 
 
 def main() -> None:
@@ -19,10 +19,10 @@ def main() -> None:
         raise SystemExit(f"Flutter kaynak kökü bulunamadı: {root}")
 
     repository_root = Path(__file__).resolve().parents[1]
-    part_dir = repository_root / ".performance_patch_parts"
+    part_dir = repository_root / ".performance_expense_patch_parts"
     parts = sorted(part_dir.glob("part*"))
-    if len(parts) != 4:
-        raise SystemExit(f"Beklenen 4 patch parçası bulunamadı: {parts}")
+    if len(parts) != 3:
+        raise SystemExit(f"Beklenen 3 patch parçası bulunamadı: {parts}")
 
     encoded = "".join(part.read_text(encoding="utf-8").strip() for part in parts)
     compressed = base64.b64decode(encoded, validate=True)
@@ -51,21 +51,32 @@ def main() -> None:
             "reschedule: false",
         ],
         "lib/screens/people_screen.dart": ["Tümünü aç", "_showAllRecordCards"],
-        "lib/screens/expenses_screen.dart": ["expenses-load-more", "categoryTotals"],
-        "test/performance_scaling_test.dart": [
-            "10 bin kayıt",
-            "10 bin gider",
-            "bildirim planını boş yere kurmaz",
+        "lib/services/expense_browser_service.dart": [
+            "ExpenseDaySort.highestTotalFirst",
+            "normalizeSearchText",
+            "_dateSearchText",
+        ],
+        "lib/screens/expenses_screen.dart": [
+            "expense-search-field",
+            "dateWithWeekday",
+            "SliverList.builder",
+            "Gider günleri",
+        ],
+        "test/performance_scaling_test.dart": ["10 bin kayıt", "10 bin gider"],
+        "test/expense_browser_service_test.dart": [
+            "23.07.2026 Perşembe",
+            "Yoğurt+",
+            "en yüksek ve arama filtreleri doğru günü açar",
         ],
     }
     for relative, needles in required.items():
         text = (root / relative).read_text(encoding="utf-8")
         for needle in needles:
             if needle not in text:
-                raise SystemExit(f"Eksik performans kapsamı: {relative}: {needle}")
+                raise SystemExit(f"Eksik performans/gider kapsamı: {relative}: {needle}")
 
     print(
-        "Performans ölçekleme patch'i uygulandı: "
+        "Performans ve gün bazlı gider patch'i uygulandı: "
         f"{len(parts)} parça, SHA-256 {actual}"
     )
 
