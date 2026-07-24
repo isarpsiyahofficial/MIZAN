@@ -1,0 +1,39 @@
+name: MIZAN overdue patch integrity check
+
+on:
+  push:
+    branches: [agent/mizan-dynamic-overdue-calendar]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode and verify patch parts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import hashlib
+          import zlib
+
+          parts = sorted(Path('.overdue_patch_parts').glob('part*'))
+          print('parts:', [(p.name, p.stat().st_size) for p in parts])
+          encoded = ''.join(p.read_text().strip() for p in parts)
+          print('encoded_length:', len(encoded))
+          raw = base64.b64decode(encoded, validate=True)
+          print('compressed_length:', len(raw))
+          patch = zlib.decompress(raw)
+          digest = hashlib.sha256(patch).hexdigest()
+          print('patch_length:', len(patch))
+          print('patch_sha256:', digest)
+          expected = '90fd058ddea3d2379e7a5735964b6797251f9e0891746332aa5266bb8ced0c4a'
+          if digest != expected:
+              raise SystemExit(f'PATCH_MISMATCH:{digest}:{expected}')
+          print('PATCH_OK')
+          PY
