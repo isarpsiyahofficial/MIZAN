@@ -1,4 +1,4 @@
-name: MIZAN large-data performance verification
+name: MIZAN large-data and expense browser verification
 
 on:
   push:
@@ -18,7 +18,7 @@ env:
 jobs:
   verify-performance-scaling:
     runs-on: ubuntu-latest
-    timeout-minutes: 85
+    timeout-minutes: 90
     steps:
       - name: Checkout isolated performance patch
         uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
           print(f'Doğrulanmış kaynak geri yüklendi: SHA-256 {actual}')
           PY
 
-      - name: Apply only large-data performance safeguards
+      - name: Apply only large-data and expense browser safeguards
         run: python3 tools/apply_performance_scaling.py "$SOURCE_ROOT"
 
       - name: Set up Java 17
@@ -103,6 +103,7 @@ jobs:
           run_check analyze flutter analyze --fatal-warnings
           run_check requirements python3 tools/validate_project.py
           run_check performance flutter test test/performance_scaling_test.dart --reporter expanded
+          run_check expense_browser flutter test test/expense_browser_service_test.dart --reporter expanded
           run_check storage flutter test test/local_store_test.dart --reporter expanded
           run_check controller flutter test test/controller_test.dart test/automatic_notification_sync_test.dart --reporter expanded
           run_check overdue flutter test test/overdue_calendar_tracking_test.dart test/manual_overdue_edit_confirmation_test.dart --reporter expanded
@@ -127,20 +128,25 @@ jobs:
           controller = Path('lib/controllers/mizan_controller.dart').read_text()
           people = Path('lib/screens/people_screen.dart').read_text()
           expenses = Path('lib/screens/expenses_screen.dart').read_text()
-          tests = Path('test/performance_scaling_test.dart').read_text()
+          browser = Path('lib/services/expense_browser_service.dart').read_text()
+          tests = Path('test/expense_browser_service_test.dart').read_text()
           checks = [
               ('JSON izolasyonu', 'Isolate.run' in store),
               ('kompakt yerel kayıt', 'jsonEncode(envelope)' in store and 'JsonEncoder.withIndent' not in store),
               ('hafif bildirim kopyası', '_notificationSnapshot' in controller),
               ('gereksiz gelir senkronu yok', 'reschedule: false' in controller),
               ('uzun kayıt listesi sınırı', '_showAllRecordCards' in people and 'Tümünü aç' in people),
-              ('gider sayfalama', 'expenses-load-more' in expenses),
-              ('10 bin kayıt testi', '10 bin kayıt' in tests and '10 bin gider' in tests),
+              ('gün bazlı gider listesi', 'Gider günleri' in expenses and 'SliverList.builder' in expenses),
+              ('arama alanı', 'expense-search-field' in expenses),
+              ('yüksek/düşük gün sırası', 'highestTotalFirst' in browser and 'lowestTotalFirst' in browser),
+              ('Türkçe esnek arama', 'normalizeSearchText' in browser and 'Yoğurt+' in tests),
+              ('tarih ve gün adı', '23.07.2026 Perşembe' in tests),
+              ('10 bin gider testi', '10 bin gider' in tests),
           ]
           failed = [name for name, ok in checks if not ok]
           if failed:
-              raise SystemExit(f'Performans kapsamı doğrulanamadı: {failed}')
-          print('Finans hesapları değiştirilmeden büyük veri korumaları doğrulandı.')
+              raise SystemExit(f'Performans/gider kapsamı doğrulanamadı: {failed}')
+          print('Finans hesapları değiştirilmeden büyük veri ve gider tarama korumaları doğrulandı.')
           PY
 
       - name: Enforce every gate
@@ -151,8 +157,8 @@ jobs:
           from pathlib import Path
           expected = {
               'visuals', 'launcher', 'analyze', 'requirements', 'performance',
-              'storage', 'controller', 'overdue', 'csv', 'reminders',
-              'reports', 'responsive', 'all_tests', 'apk'
+              'expense_browser', 'storage', 'controller', 'overdue', 'csv',
+              'reminders', 'reports', 'responsive', 'all_tests', 'apk'
           }
           path = Path('ci-logs/results.txt')
           if not path.exists():
@@ -167,7 +173,7 @@ jobs:
               raise SystemExit(f'Çalıştırılmayan kapılar: {missing}')
           if failed:
               raise SystemExit(f'Başarısız kapılar: {failed}')
-          print('Büyük veri performans sürümü bütün kapıları geçti.')
+          print('Büyük veri ve gider tarama sürümü bütün kapıları geçti.')
           PY
 
       - name: Package verified source
@@ -179,8 +185,8 @@ jobs:
           import shutil, zipfile
           root = Path('workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL')
           dist = Path('dist')
-          stage = dist / 'LEFFERION-PRIME-MIZAN-PERFORMANCE-SCALING-FINAL'
-          archive = dist / 'LEFFERION-PRIME-MIZAN-PERFORMANCE-SCALING-FINAL-SOURCE.zip'
+          stage = dist / 'LEFFERION-PRIME-MIZAN-PERFORMANCE-EXPENSE-BROWSER-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-PERFORMANCE-EXPENSE-BROWSER-FINAL-SOURCE.zip'
           shutil.rmtree(dist, ignore_errors=True)
           stage.mkdir(parents=True)
           excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist', '.gradle'}
@@ -205,7 +211,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-performance-scaling-diagnostics
+          name: mizan-performance-expense-browser-diagnostics
           path: ${{ env.SOURCE_ROOT }}/ci-logs/
           if-no-files-found: error
           retention-days: 14
@@ -214,7 +220,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-performance-scaling-release
+          name: lefferion-prime-mizan-performance-expense-browser-release
           path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
@@ -223,7 +229,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-performance-scaling-source
-          path: dist/LEFFERION-PRIME-MIZAN-PERFORMANCE-SCALING-FINAL-SOURCE.zip
+          name: lefferion-prime-mizan-performance-expense-browser-source
+          path: dist/LEFFERION-PRIME-MIZAN-PERFORMANCE-EXPENSE-BROWSER-FINAL-SOURCE.zip
           if-no-files-found: error
           retention-days: 30
