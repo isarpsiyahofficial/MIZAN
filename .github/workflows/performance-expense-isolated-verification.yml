@@ -1,0 +1,147 @@
+name: MIZAN isolated performance and expense verification
+
+on:
+  push:
+    branches: [agent/mizan-performance-expense-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact verified source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-manual-overdue-sync-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 30090668985
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore and patch exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = 'c87d38b1a6d03ebef79d89df575bf7e4b0f4b8050256aac4532dd8646b8abe48'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual} != {expected}')
+          shutil.rmtree('workspace', ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall('workspace')
+          PY
+          python3 tools/apply_performance_scaling.py "$SOURCE_ROOT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Prepare project
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+
+      - name: Verify performance, expense browsing and regressions
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          flutter analyze --fatal-warnings | tee ci-logs/analyze.log
+          python3 tools/validate_project.py | tee ci-logs/requirements.log
+          flutter test test/performance_scaling_test.dart --reporter expanded | tee ci-logs/performance.log
+          flutter test test/expense_browser_service_test.dart --reporter expanded | tee ci-logs/expense-browser.log
+          flutter test test/local_store_test.dart test/controller_test.dart test/automatic_notification_sync_test.dart --reporter expanded | tee ci-logs/storage-controller.log
+          flutter test test/overdue_calendar_tracking_test.dart test/manual_overdue_edit_confirmation_test.dart --reporter expanded | tee ci-logs/overdue.log
+          flutter test test/csv_backup_test.dart --reporter expanded | tee ci-logs/csv.log
+          flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart --reporter expanded | tee ci-logs/reminders.log
+          flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded | tee ci-logs/reports.log
+          flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded | tee ci-logs/responsive.log
+          flutter test --reporter expanded | tee ci-logs/all-tests.log
+          flutter build apk --release | tee ci-logs/apk.log
+          unzip -t build/app/outputs/flutter-apk/app-release.apk > ci-logs/apk-zip-test.log
+
+      - name: Package verified source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, zipfile
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL')
+          dist = Path('dist')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-PERFORMANCE-EXPENSE-BROWSER-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-PERFORMANCE-EXPENSE-BROWSER-FINAL-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist', '.gradle'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages', 'local.properties'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or any(part in excluded_roots for part in relative.parts) or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-performance-expense-browser-isolated-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-performance-expense-browser-isolated-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload source
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-performance-expense-browser-isolated-source
+          path: dist/LEFFERION-PRIME-MIZAN-PERFORMANCE-EXPENSE-BROWSER-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
