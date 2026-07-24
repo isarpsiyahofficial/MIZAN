@@ -25,7 +25,7 @@ def main() -> None:
       padding: EdgeInsets.fromLTRB(padding, 18, padding, 110),""",
         """    return ListView(
       key: const PageStorageKey('expenses'),
-      scrollCacheExtent: 2400,
+      scrollCacheExtent: const ScrollCacheExtent.pixels(2400),
       padding: EdgeInsets.fromLTRB(padding, 18, padding, 110),""",
         "Gider listesi bulunamadı.",
     )
@@ -111,7 +111,7 @@ def main() -> None:
 
     checks = {
         expense_path: (
-            "scrollCacheExtent: 2400",
+            "scrollCacheExtent: const ScrollCacheExtent.pixels(2400)",
             "isExpanded: true",
             "overflow: TextOverflow.ellipsis",
         ),
