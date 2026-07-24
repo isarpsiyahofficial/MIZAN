@@ -1,0 +1,58 @@
+name: Export reconstructed MIZAN final source
+
+on:
+  push:
+    branches: [agent/mizan-final-source-export]
+  pull_request:
+    branches: [agent/mizan-final-complete-release]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified base source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-manual-overdue-sync-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 30090668985
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Reconstruct exact final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          archives=sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives)!=1: raise SystemExit(f'Kaynak ZIP sayısı hatalı: {archives}')
+          archive=archives[0]
+          expected='c87d38b1a6d03ebef79d89df575bf7e4b0f4b8050256aac4532dd8646b8abe48'
+          actual=hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual!=expected: raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual}')
+          shutil.rmtree('workspace',ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as z: z.extractall('workspace')
+          PY
+          python3 tools/apply_mizan_final_complete.py workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL
+          cd workspace
+          zip -qr ../MIZAN-RECONSTRUCTED-FINAL-AUDIT-SOURCE.zip LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL
+          unzip -t ../MIZAN-RECONSTRUCTED-FINAL-AUDIT-SOURCE.zip
+
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-reconstructed-final-audit-source
+          path: MIZAN-RECONSTRUCTED-FINAL-AUDIT-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 7
