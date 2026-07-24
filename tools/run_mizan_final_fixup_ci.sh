@@ -21,7 +21,82 @@ with zipfile.ZipFile(archive) as source_zip:
 PY
 
 python3 tools/apply_mizan_final_complete.py "$SOURCE_ROOT"
-python3 tools/apply_mizan_final_fixup_v3.py "$SOURCE_ROOT"
+# Büyük son UI yamasının CI'da başarıyla doğrulanmış sabit sürümünü kullan.
+git fetch --no-tags --depth=1 origin 59fcc98ecca3ea30589b3523f0cdb0a015c80c9c
+git show FETCH_HEAD:tools/apply_mizan_final_fixup_v3.py > /tmp/apply_mizan_final_fixup_verified.py
+PYTHONPATH="$PWD/tools" python3 /tmp/apply_mizan_final_fixup_verified.py "$SOURCE_ROOT"
+
+# Arama açıkken eşleşen gün kartını alt navigasyonun üstünde ve hemen erişilebilir tut.
+python3 - "$SOURCE_ROOT" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+path = root / 'lib/screens/expenses_screen.dart'
+text = path.read_text(encoding='utf-8')
+old = """            const SizedBox(height: 18),
+            AdaptiveGrid(
+              minTileWidth: 175,
+              children: [
+                MetricCard(
+                  label: 'Bugün',
+                  value: money(state.expenseTotalForDay(now)),
+                  color: MizanTheme.green,
+                  icon: Icons.today_outlined,
+                ),
+                MetricCard(
+                  label: 'Bu ay',
+                  value: money(state.expenseTotalForMonth(now)),
+                  color: MizanTheme.blue,
+                  icon: Icons.calendar_month_outlined,
+                ),
+                MetricCard(
+                  label: '${period.label} görünümü',
+                  value: money(visibleTotal),
+                  icon: Icons.filter_alt_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+"""
+new = """            if (!hasSearchQuery) ...[
+              const SizedBox(height: 18),
+              AdaptiveGrid(
+                minTileWidth: 175,
+                children: [
+                  MetricCard(
+                    label: 'Bugün',
+                    value: money(state.expenseTotalForDay(now)),
+                    color: MizanTheme.green,
+                    icon: Icons.today_outlined,
+                  ),
+                  MetricCard(
+                    label: 'Bu ay',
+                    value: money(state.expenseTotalForMonth(now)),
+                    color: MizanTheme.blue,
+                    icon: Icons.calendar_month_outlined,
+                  ),
+                  MetricCard(
+                    label: '${period.label} görünümü',
+                    value: money(visibleTotal),
+                    icon: Icons.filter_alt_outlined,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+"""
+if text.count(old) != 1:
+    raise SystemExit(f'Gider metrik bloğu beklenen biçimde bulunamadı: {text.count(old)}')
+text = text.replace(old, new, 1)
+path.write_text(text, encoding='utf-8')
+verified = path.read_text(encoding='utf-8')
+for token in ('if (!hasSearchQuery) ...[', 'hasSearchQuery && firstVisibleGroup != null'):
+    if token not in verified:
+        raise SystemExit(f'Gider arama odak koruması eksik: {token}')
+print('MİZAN gider arama odak katmanı uygulandı.')
+PY
+
 test -f "$SOURCE_ROOT/pubspec.yaml"
 
 mkdir -p "$SOURCE_ROOT/ci-logs"
