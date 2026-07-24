@@ -62,29 +62,74 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Analyze, test and build release
+      - name: Prepare Android and dependencies
         working-directory: ${{ env.SOURCE_ROOT }}
-        shell: bash
         run: |
-          set -euo pipefail
           flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
           python3 tools/configure_android.py
           flutter pub get
           dart format lib test
-          flutter test test/visual_capture_test.dart --update-goldens
-          dart run flutter_launcher_icons
-          flutter analyze --fatal-warnings
-          python3 tools/validate_project.py
-          flutter test test/overdue_calendar_tracking_test.dart --reporter expanded
-          flutter test test/model_test.dart test/final_installment_period_test.dart --reporter expanded
-          flutter test test/controller_test.dart test/local_store_test.dart --reporter expanded
-          flutter test test/csv_backup_test.dart --reporter expanded
-          flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
-          flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
-          flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
-          flutter test --reporter expanded
-          flutter build apk --release
-          unzip -t build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Capture every verification gate
+        working-directory: ${{ env.SOURCE_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check overdue flutter test test/overdue_calendar_tracking_test.dart --reporter expanded
+          run_check models flutter test test/model_test.dart test/final_installment_period_test.dart --reporter expanded
+          run_check controller flutter test test/controller_test.dart test/local_store_test.dart --reporter expanded
+          run_check csv flutter test test/csv_backup_test.dart --reporter expanded
+          run_check reminders flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+          if [ -s build/app/outputs/flutter-apk/app-release.apk ]; then
+            unzip -t build/app/outputs/flutter-apk/app-release.apk > ci-logs/apk-zip-test.log 2>&1
+          fi
+
+      - name: Enforce every gate
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements', 'overdue',
+              'models', 'controller', 'csv', 'reminders', 'reports',
+              'responsive', 'all_tests', 'apk'
+          }
+          path = Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Sonuç dosyası oluşturulamadı.')
+          results = {}
+          for line in path.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan kapılar: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız kapılar: {failed}')
+          print('Dinamik gecikme final doğrulaması bütün kapıları geçti.')
+          PY
 
       - name: Package verified source
         if: success()
@@ -92,16 +137,16 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import shutil, zipfile
+          import zipfile
           root = Path('workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL')
           out = Path('dist/LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL-SOURCE.zip')
           out.parent.mkdir(exist_ok=True)
           excluded = {'.git', '.dart_tool', 'build', '.gradle', 'ci-logs', 'local.properties'}
           with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as output:
-              for path in root.rglob('*'):
-                  relative = path.relative_to(root)
-                  if path.is_file() and not any(part in excluded for part in relative.parts):
-                      output.write(path, Path('LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL') / relative)
+              for file in root.rglob('*'):
+                  relative = file.relative_to(root)
+                  if file.is_file() and not any(part in excluded for part in relative.parts):
+                      output.write(file, Path('LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL') / relative)
           PY
 
       - name: Upload diagnostics
@@ -110,7 +155,7 @@ jobs:
         with:
           name: mizan-dynamic-overdue-isolated-diagnostics
           path: ${{ env.SOURCE_ROOT }}/ci-logs/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
       - name: Upload APK
