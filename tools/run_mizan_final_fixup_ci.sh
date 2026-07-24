@@ -21,7 +21,7 @@ with zipfile.ZipFile(archive) as source_zip:
 PY
 
 python3 tools/apply_mizan_final_complete.py "$SOURCE_ROOT"
-python3 tools/apply_mizan_final_fixup_v2.py "$SOURCE_ROOT"
+python3 tools/apply_mizan_final_fixup_v3.py "$SOURCE_ROOT"
 test -f "$SOURCE_ROOT/pubspec.yaml"
 
 mkdir -p "$SOURCE_ROOT/ci-logs"
