@@ -3,6 +3,8 @@ name: MIZAN complete final release verification
 on:
   push:
     branches: [agent/mizan-final-complete-release]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
   workflow_dispatch:
 
 permissions:
