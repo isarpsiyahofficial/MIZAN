@@ -3,6 +3,8 @@ name: Export reconstructed MIZAN final source
 on:
   push:
     branches: [agent/mizan-final-source-export]
+  pull_request:
+    branches: [agent/mizan-final-complete-release]
   workflow_dispatch:
 
 permissions:
