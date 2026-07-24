@@ -17,10 +17,10 @@ def main() -> None:
     root = Path(sys.argv[1]).resolve()
     if not (root / "pubspec.yaml").is_file():
         raise SystemExit(f"Flutter kaynak kökü bulunamadı: {root}")
-    part_dir = Path(__file__).with_name("mizan_final_complete_parts")
+    part_dir = Path(__file__).with_name("mizan_final_complete_parts_v2")
     parts = sorted(part_dir.glob("part*.txt"))
-    if len(parts) != 6:
-        raise SystemExit(f"Beklenen 6 patch parçası bulunamadı: {len(parts)}")
+    if len(parts) != 12:
+        raise SystemExit(f"Beklenen 12 patch parçası bulunamadı: {len(parts)}")
     encoded = "".join(part.read_text(encoding="utf-8").strip() for part in parts)
     patch = zlib.decompress(base64.b64decode(encoded))
     actual = hashlib.sha256(patch).hexdigest()
