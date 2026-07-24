@@ -1,0 +1,251 @@
+name: MIZAN dynamic overdue calendar verification
+
+on:
+  push:
+    branches: [agent/mizan-dynamic-overdue-calendar]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL
+
+jobs:
+  verify-dynamic-overdue-calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout isolated overdue patch
+        uses: actions/checkout@v4
+
+      - name: Download exact verified previous source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-auto-notification-sync-final-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29995672312
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify and restore exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import zipfile
+
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = '5010140363170ccdaaa1061f15c463d0633dc08bc3bcfed69573134443fb1e8c'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual} != {expected}')
+          workspace = Path('workspace')
+          shutil.rmtree(workspace, ignore_errors=True)
+          workspace.mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall(workspace)
+          root = workspace / 'LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL'
+          if not (root / 'pubspec.yaml').is_file():
+              raise SystemExit(f'Kaynak kökü bulunamadı: {root}')
+          print(f'Doğrulanmış kaynak geri yüklendi: SHA-256 {actual}')
+          PY
+
+      - name: Apply only dynamic overdue and calendar changes
+        run: python3 tools/apply_dynamic_overdue_calendar.py "$SOURCE_ROOT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Prepare Android and dependencies
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+
+      - name: Run targeted and complete regression gates
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check visuals flutter test test/visual_capture_test.dart --update-goldens
+          run_check launcher dart run flutter_launcher_icons
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check overdue flutter test test/overdue_calendar_tracking_test.dart --reporter expanded
+          run_check models flutter test test/model_test.dart test/final_installment_period_test.dart --reporter expanded
+          run_check controller flutter test test/controller_test.dart --reporter expanded
+          run_check local_store flutter test test/local_store_test.dart --reporter expanded
+          run_check csv flutter test test/csv_backup_test.dart --reporter expanded
+          run_check reminders flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart --reporter expanded
+          run_check interactions flutter test test/ui_interaction_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+
+      - name: Verify exact requested scope and APK
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          unzip -t "$APK" > ci-logs/apk-zip-test.log
+          python3 - <<'PY'
+          from pathlib import Path
+
+          models = Path('lib/models/mizan_models.dart').read_text()
+          csv = Path('lib/services/csv_backup_service.dart').read_text()
+          local_store = Path('lib/services/local_store.dart').read_text()
+          forms = Path('lib/screens/record_form_dialogs.dart').read_text()
+          people = Path('lib/screens/people_screen.dart').read_text()
+          dashboard = Path('lib/screens/dashboard_screen.dart').read_text()
+          reminders = Path('lib/services/reminder_engine.dart').read_text()
+          tests = Path('test/overdue_calendar_tracking_test.dart').read_text()
+          checks = [
+              ('dinamik günlük gecikme', 'manualOverdueRecordedAt' in models and 'manualOverdueSince' in models),
+              ('gecikmiş aylar', 'manualOverduePeriods' in models and 'Gecikmiş aylar (opsiyonel)' in forms),
+              ('CSV yedek yaşı', 'hydrateLegacyOverdueAnchors' in csv),
+              ('yerel eski veri yaşı', 'hydrateLegacyOverdueAnchors' in local_store),
+              ('gecikme gün görünümü', 'overdueDays' in people and 'recordTimingLabel' in dashboard),
+              ('bildirimde gecikme günü', 'overdueDaysAt' in reminders),
+              ('ilk geçerli vade', 'İlk geçerli vade' in forms),
+              ('hesaplama uyarısı', 'mizanCalculationWarning' in dashboard and 'mizanCalculationWarning' in people),
+              ('hedef testler', '10 günlük eski CSV' in tests and 'ödeme ile azalır' in tests),
+          ]
+          failed = [name for name, ok in checks if not ok]
+          if failed:
+              raise SystemExit(f'İstenen gecikme/takvim kapsamı doğrulanamadı: {failed}')
+          print('Yalnız dinamik gecikme, vade takvimi, CSV yaşlandırma ve ilgili görünüm alanları değiştirildi.')
+          PY
+
+      - name: Enforce every gate
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {
+              'visuals', 'launcher', 'analyze', 'requirements', 'overdue',
+              'models', 'controller', 'local_store', 'csv', 'reminders',
+              'reports', 'responsive', 'interactions', 'all_tests', 'apk'
+          }
+          path = Path('ci-logs/results.txt')
+          if not path.exists():
+              raise SystemExit('Sonuç dosyası oluşturulamadı.')
+          results = {}
+          for line in path.read_text().splitlines():
+              name, code = line.split('=', 1)
+              results[name] = int(code)
+          missing = sorted(expected - results.keys())
+          failed = {name: code for name, code in results.items() if code != 0}
+          if missing:
+              raise SystemExit(f'Çalıştırılmayan kapılar: {missing}')
+          if failed:
+              raise SystemExit(f'Başarısız kapılar: {failed}')
+          print('Dinamik gecikme/takvim sürümü bütün kapıları geçti.')
+          PY
+
+      - name: Package exact verified source
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import zipfile
+
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL')
+          dist = Path('dist')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist', '.gradle'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages', 'local.properties'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or any(part in excluded_roots for part in relative.parts) or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          print(f'Doğrulanmış kaynak: {archive}')
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-dynamic-overdue-calendar-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-dynamic-overdue-calendar-screenshots
+          path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-dynamic-overdue-calendar-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload exact source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-dynamic-overdue-calendar-source
+          path: dist/LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
