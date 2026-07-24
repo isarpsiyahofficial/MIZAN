@@ -1,0 +1,160 @@
+name: MIZAN isolated complete final verification
+
+on:
+  push:
+    branches: [agent/mizan-final-complete-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact verified base
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-manual-overdue-sync-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 30090668985
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore and apply final patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          archives=sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives)!=1: raise SystemExit(f'Kaynak ZIP sayısı hatalı: {archives}')
+          archive=archives[0]
+          expected='c87d38b1a6d03ebef79d89df575bf7e4b0f4b8050256aac4532dd8646b8abe48'
+          actual=hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual!=expected: raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual}')
+          shutil.rmtree('workspace',ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as z: z.extractall('workspace')
+          PY
+          python3 tools/apply_mizan_final_complete.py "$SOURCE_ROOT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Run isolated preparation and all gates
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          : > ci-logs/results.txt
+          run_check() {
+            local name="$1"; shift
+            set +e
+            "$@" >"ci-logs/${name}.log" 2>&1
+            local code=$?
+            set -e
+            echo "${name}=${code}" | tee -a ci-logs/results.txt
+            cat "ci-logs/${name}.log"
+          }
+          run_check flutter_create flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          run_check android_config python3 tools/configure_android.py
+          run_check pub_get flutter pub get
+          run_check format dart format lib test
+          run_check analyze flutter analyze --fatal-warnings
+          run_check requirements python3 tools/validate_project.py
+          run_check expense_browser flutter test test/expense_browser_service_test.dart --reporter expanded
+          run_check variable_bill_rent flutter test test/bill_rent_schedule_test.dart --reporter expanded
+          run_check performance flutter test test/performance_scaling_test.dart --reporter expanded
+          run_check overdue flutter test test/overdue_calendar_tracking_test.dart test/manual_overdue_edit_confirmation_test.dart --reporter expanded
+          run_check csv flutter test test/csv_backup_test.dart --reporter expanded
+          run_check notifications flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
+          run_check reports flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          run_check responsive flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
+          run_check all_tests flutter test --reporter expanded
+          run_check apk flutter build apk --release
+          if [ -s build/app/outputs/flutter-apk/app-release.apk ]; then unzip -t build/app/outputs/flutter-apk/app-release.apk > ci-logs/apk-zip-test.log; fi
+
+      - name: Enforce isolated gates
+        if: always()
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected={'flutter_create','android_config','pub_get','format','analyze','requirements','expense_browser','variable_bill_rent','performance','overdue','csv','notifications','reports','responsive','all_tests','apk'}
+          p=Path('ci-logs/results.txt')
+          if not p.exists(): raise SystemExit('Sonuç dosyası yok')
+          results={k:int(v) for k,v in (line.split('=',1) for line in p.read_text().splitlines())}
+          missing=sorted(expected-results.keys())
+          failed={k:v for k,v in results.items() if v}
+          if missing: raise SystemExit(f'Çalışmayan kapılar: {missing}')
+          if failed: raise SystemExit(f'Başarısız kapılar: {failed}')
+          print('İzole final doğrulama geçti.')
+          PY
+
+      - name: Package source
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, zipfile
+          root=Path('workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL')
+          dist=Path('dist'); stage=dist/'LEFFERION-PRIME-MIZAN-COMPLETE-FINAL'; archive=dist/'LEFFERION-PRIME-MIZAN-COMPLETE-FINAL-SOURCE.zip'
+          shutil.rmtree(dist,ignore_errors=True); stage.mkdir(parents=True)
+          excluded={'.git','.dart_tool','build','ci-logs','dist','.gradle'}
+          for src in root.rglob('*'):
+              rel=src.relative_to(root)
+              if any(part in excluded for part in rel.parts): continue
+              dst=stage/rel
+              if src.is_dir(): dst.mkdir(parents=True,exist_ok=True)
+              elif src.is_file(): dst.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,dst)
+          with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as out:
+              for src in stage.rglob('*'):
+                  if src.is_file(): out.write(src,src.relative_to(stage.parent))
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-complete-final-isolated-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-complete-final-isolated-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload source
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-complete-final-isolated-source
+          path: dist/LEFFERION-PRIME-MIZAN-COMPLETE-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
