@@ -50,6 +50,7 @@ jobs:
               source_zip.extractall('workspace')
           PY
           python3 tools/apply_dynamic_overdue_calendar.py "$SOURCE_ROOT"
+          python3 tools/apply_dynamic_overdue_compile_fixes.py "$SOURCE_ROOT"
 
       - uses: actions/setup-java@v4
         with:
