@@ -1,0 +1,132 @@
+name: MIZAN calendar overdue verification
+
+on:
+  push:
+    branches: [agent/mizan-calendar-overdue-tracking]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact previous release source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-auto-notification-sync-final-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29995672312
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify source and apply only overdue patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          expected = '5010140363170ccdaaa1061f15c463d0633dc08bc3bcfed69573134443fb1e8c'
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual}')
+          shutil.rmtree('workspace', ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as zf:
+              zf.extractall('workspace')
+          PY
+          python3 tools/apply_calendar_overdue_tracking.py "$SOURCE_ROOT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Analyze, test and build exact release
+        working-directory: ${{ env.SOURCE_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+          flutter test test/overdue_calendar_tracking_test.dart --reporter expanded
+          flutter test test/model_test.dart test/controller_test.dart test/csv_backup_test.dart test/reminder_engine_test.dart test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          flutter test test/visual_capture_test.dart --update-goldens
+          flutter analyze --fatal-warnings
+          python3 tools/validate_project.py
+          flutter test --reporter expanded
+          flutter build apk --release
+          unzip -t build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Verify exact requested scope
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          model = Path('lib/models/mizan_models.dart').read_text()
+          csv = Path('lib/services/csv_backup_service.dart').read_text()
+          reminder = Path('lib/services/reminder_engine.dart').read_text()
+          form = Path('lib/screens/record_form_dialogs.dart').read_text()
+          checks = {
+              'takvim ankrajı': 'manualOverdueRecordedAt' in model,
+              'geciken aylar': 'manualOverdueDueDates' in model and 'Ödenmeyen aylar' in form,
+              'csv tarih farkı': '_migrateOverdueAnchors' in csv,
+              'günlük gecikme bildirimi': 'Duration(days: 30)' in reminder,
+              'uyarı metni': 'mizanAccuracyWarning' in model,
+              'şema': 'currentSchemaVersion = 10' in model,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit(f'Eksik kapsam: {failed}')
+          print('Yalnız gecikme takvimi, CSV uyarlaması, görünüm ve ilgili bildirim kapsamı değiştirildi.')
+          PY
+
+      - name: Package verified outputs
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "$SOURCE_ROOT/build/app/outputs/flutter-apk/app-release.apk" dist/LEFFERION-PRIME-MIZAN-CALENDAR-OVERDUE-FINAL-RELEASE.apk
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL')
+          out = Path('dist/LEFFERION-PRIME-MIZAN-CALENDAR-OVERDUE-FINAL-SOURCE.zip')
+          excluded = {'.git', '.dart_tool', 'build', '.gradle', 'local.properties'}
+          with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+              for path in root.rglob('*'):
+                  rel = path.relative_to(root)
+                  if path.is_file() and not any(part in excluded for part in rel.parts):
+                      zf.write(path, Path('LEFFERION-PRIME-MIZAN-CALENDAR-OVERDUE-FINAL') / rel)
+          PY
+          sha256sum dist/* > dist/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-calendar-overdue-final
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
