@@ -20,6 +20,13 @@ def main() -> None:
     expense_text = expense_path.read_text(encoding="utf-8")
     expense_text = _replace_once(
         expense_text,
+        "import 'package:flutter/material.dart';\n",
+        "import 'package:flutter/material.dart';\n"
+        "import 'package:flutter/rendering.dart' show ScrollCacheExtent;\n",
+        "Flutter gider ekranı import alanı bulunamadı.",
+    )
+    expense_text = _replace_once(
+        expense_text,
         """    return ListView(
       key: const PageStorageKey('expenses'),
       padding: EdgeInsets.fromLTRB(padding, 18, padding, 110),""",
@@ -111,6 +118,7 @@ def main() -> None:
 
     checks = {
         expense_path: (
+            "show ScrollCacheExtent",
             "scrollCacheExtent: const ScrollCacheExtent.pixels(2400)",
             "isExpanded: true",
             "overflow: TextOverflow.ellipsis",
