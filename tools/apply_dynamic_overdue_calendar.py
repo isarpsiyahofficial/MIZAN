@@ -54,6 +54,11 @@ def apply_patch(source_root: Path) -> None:
     finally:
         patch_path.unlink(missing_ok=True)
 
+    test_template = repository_root / "templates" / "overdue_calendar_tracking_test.dart"
+    test_target = source_root / "test" / "overdue_calendar_tracking_test.dart"
+    test_target.write_text(test_template.read_text(encoding="utf-8"), encoding="utf-8")
+    emit(f"Hedef test dosyası kuruldu: {test_target}")
+
     required = {
         "lib/models/mizan_models.dart": [
             "currentSchemaVersion = 10",
