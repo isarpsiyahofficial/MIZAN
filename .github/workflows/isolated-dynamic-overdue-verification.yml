@@ -1,0 +1,132 @@
+name: MIZAN isolated dynamic overdue final
+
+on:
+  pull_request:
+    branches: [ci/overdue-verification-base]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact verified source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-auto-notification-sync-final-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29995672312
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Verify source and apply overdue-only patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = '5010140363170ccdaaa1061f15c463d0633dc08bc3bcfed69573134443fb1e8c'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual}')
+          shutil.rmtree('workspace', ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall('workspace')
+          PY
+          python3 tools/apply_dynamic_overdue_calendar.py "$SOURCE_ROOT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Analyze, test and build release
+        working-directory: ${{ env.SOURCE_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+          flutter test test/visual_capture_test.dart --update-goldens
+          dart run flutter_launcher_icons
+          flutter analyze --fatal-warnings
+          python3 tools/validate_project.py
+          flutter test test/overdue_calendar_tracking_test.dart --reporter expanded
+          flutter test test/model_test.dart test/final_installment_period_test.dart --reporter expanded
+          flutter test test/controller_test.dart test/local_store_test.dart --reporter expanded
+          flutter test test/csv_backup_test.dart --reporter expanded
+          flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
+          flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
+          flutter test --reporter expanded
+          flutter build apk --release
+          unzip -t build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Package verified source
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, zipfile
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL')
+          out = Path('dist/LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL-SOURCE.zip')
+          out.parent.mkdir(exist_ok=True)
+          excluded = {'.git', '.dart_tool', 'build', '.gradle', 'ci-logs', 'local.properties'}
+          with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as output:
+              for path in root.rglob('*'):
+                  relative = path.relative_to(root)
+                  if path.is_file() and not any(part in excluded for part in relative.parts):
+                      output.write(path, Path('LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL') / relative)
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-dynamic-overdue-isolated-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-dynamic-overdue-final-apk
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload source
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-dynamic-overdue-final-source
+          path: dist/LEFFERION-PRIME-MIZAN-DYNAMIC-OVERDUE-CALENDAR-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
