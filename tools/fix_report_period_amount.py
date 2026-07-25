@@ -62,6 +62,22 @@ def main() -> None:
   double get scheduledPaymentAmount => dueAmountAt(DateTime.now());""",
         "Kira/taksit gerçek kalan toplamı",
     )
+    text = replace_once(
+        text,
+        """  bool isDueInMonth(DateTime month) {
+    if (!isMonthlySchedule) {
+      return dueDate.year == month.year && dueDate.month == month.month;
+    }
+    final due = dueDateForMonth(month);""",
+        """  bool isDueInMonth(DateTime month) {
+    if (!isMonthlySchedule) {
+      return dueDate.year == month.year && dueDate.month == month.month;
+    }
+    final first = firstScheduledDueDate;
+    if (first.year == month.year && first.month == month.month) return true;
+    final due = dueDateForMonth(month);""",
+        "Kira/taksit ilk ay dönem yükü",
+    )
 
     if "amount: rent.plannedCycleAmount" in text:
         text = text.replace(
@@ -77,12 +93,13 @@ def main() -> None:
     required = (
         "DateTime get firstScheduledDueDate => _dateOnly(dueDate);",
         "final value = amount - paidAmount;",
+        "if (first.year == month.year && first.month == month.month) return true;",
         "amount: rent.dueAmountAt(reference)",
     )
     for token in required:
         if token not in verified:
             raise SystemExit(f"Kira/taksit dönem düzeltmesi eksik: {token}")
-    print("İlk ödeme tarihi korunuyor; sonraki aylar ödeme gününe göre ilerliyor ve kalan toplam dönem tutarından ayrılıyor.")
+    print("İlk ödeme tarihi korunuyor; ilk ay dönem yüküne katılıyor, sonraki aylar ödeme gününe göre ilerliyor ve kalan toplam dönem tutarından ayrılıyor.")
 
 
 if __name__ == "__main__":
