@@ -5,6 +5,7 @@ from pathlib import Path
 
 from add_expense_date_range import main as add_expense_date_range
 from fix_expense_day_numeric_date import main as fix_expense_day_numeric_date
+from fix_final_ui_regressions import main as fix_final_ui_regressions
 from fix_notification_full_state import main as fix_notification_full_state
 from fix_report_period_amount import main as fix_report_period_amount
 
@@ -16,6 +17,7 @@ def main() -> None:
     fix_notification_full_state()
     fix_expense_day_numeric_date()
     add_expense_date_range()
+    fix_final_ui_regressions()
     root = Path(sys.argv[1]).resolve()
     path = root / "tools/validate_project.py"
     text = path.read_text(encoding="utf-8")
