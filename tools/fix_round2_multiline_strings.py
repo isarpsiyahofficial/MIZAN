@@ -19,6 +19,13 @@ def main() -> None:
     expenses = expenses_path.read_text(encoding="utf-8")
     expenses = replace_once(
         expenses,
+        """import '../widgets/mizan_cards.dart';""",
+        """import '../widgets/mizan_cards.dart';
+import 'people_screen.dart';""",
+        "Gider kayıt ayrıntısı içe aktarımı",
+    )
+    expenses = replace_once(
+        expenses,
         """                    subtitle:
                         '${_paymentRecordLabel(detail.type)} · ${detail.recordSubtitle}${detail.payment.note.trim().isEmpty ? '' : '
 ${detail.payment.note.trim()}'}',""",
@@ -27,6 +34,16 @@ ${detail.payment.note.trim()}'}',""",
         "Gider ödeme açıklaması",
     )
     expenses_path.write_text(expenses, encoding="utf-8")
+
+    people_path = root / "lib/screens/people_screen.dart"
+    people = people_path.read_text(encoding="utf-8")
+    people = replace_once(
+        people,
+        "icon: recordIcon(row.type),",
+        "icon: _recordTypeIcon(row.type),",
+        "Kişi metrik ayrıntısı kayıt simgesi",
+    )
+    people_path.write_text(people, encoding="utf-8")
 
     reports_path = root / "lib/screens/reports_screen.dart"
     reports = reports_path.read_text(encoding="utf-8")
@@ -72,12 +89,51 @@ Not: $note'}',""",
     )
     pdf_path.write_text(pdf, encoding="utf-8")
 
+    pdf_test_path = root / "test/pdf_report_test.dart"
+    pdf_test = pdf_test_path.read_text(encoding="utf-8")
+    pdf_test = replace_once(
+        pdf_test,
+        """            quantity: 1 + (index % 3),
+            unitPrice: 125 + index,""",
+        """            quantity: 1.0 + (index % 3),
+            unitPrice: 125.0 + index,""",
+        "PDF uzun rapor sayısal test verileri",
+    )
+    pdf_test_path.write_text(pdf_test, encoding="utf-8")
+
+    report_test_path = root / "test/report_service_test.dart"
+    report_test = report_test_path.read_text(encoding="utf-8")
+    marker = "test('gecikmiş aylık taksitler bütün açık dönemleriyle toplanır'"
+    if marker not in report_test:
+        raise SystemExit("Birikmiş gecikme regresyon testi bulunamadı.")
+    before, after = report_test.split(marker, 1)
+    after = replace_once(
+        after,
+        """      ],
+      notificationSlots: defaultNotificationSlots,""",
+        """      ],
+      expenseCategories: const [],
+      expenses: const [],
+      notificationSlots: defaultNotificationSlots,""",
+        "Birikmiş gecikme testinin zorunlu state alanları",
+    )
+    report_test_path.write_text(before + marker + after, encoding="utf-8")
+
     checks = {
-        expenses_path: ["\\n${detail.payment.note.trim()}"],
+        expenses_path: [
+            "import 'people_screen.dart';",
+            "\\n${detail.payment.note.trim()}",
+        ],
+        people_path: ["icon: _recordTypeIcon(row.type)"],
         reports_path: ["${record.subtitle}\\n${shortDate(record.dueDate)}"],
         pdf_path: [
             "\\nNot: $note",
             "${_typeLabel(detail.type)}\\n${detail.recordTitle}",
+        ],
+        pdf_test_path: ["quantity: 1.0 +", "unitPrice: 125.0 +"],
+        report_test_path: [
+            "expenseCategories: const []",
+            "expenses: const []",
         ],
     }
     missing: list[str] = []
@@ -87,8 +143,8 @@ Not: $note'}',""",
             if token not in source:
                 missing.append(f"{path.name}:{token}")
     if missing:
-        raise SystemExit(f"İkinci tur çok satırlı metin düzeltmesi eksik: {missing}")
-    print("İkinci tur Dart çok satırlı metinleri güvenli kaçışlarla düzeltildi.")
+        raise SystemExit(f"İkinci tur derleme düzeltmesi eksik: {missing}")
+    print("İkinci tur Dart metin, simge, ayrıntı ve test derleme düzeltmeleri uygulandı.")
 
 
 if __name__ == "__main__":
