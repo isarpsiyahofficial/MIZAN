@@ -11,8 +11,21 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Kullanım: fix_final_validator.py <source-root>")
     fix_monthly_first_due_date()
-    add_expense_date_range()
     root = Path(sys.argv[1]).resolve()
+
+    regression_test = root / "test/monthly_first_due_date_regression_test.dart"
+    test_text = regression_test.read_text(encoding="utf-8")
+    replacements = {
+        "DebtKind.credit": "DebtKind.loan",
+        "monthlyPayment: 1000": "monthlyAmount: 1000",
+    }
+    for old, new in replacements.items():
+        if old not in test_text:
+            raise SystemExit(f"Aylık ilk vade testi düzeltme alanı bulunamadı: {old}")
+        test_text = test_text.replace(old, new, 1)
+    regression_test.write_text(test_text, encoding="utf-8")
+
+    add_expense_date_range()
     path = root / "tools/validate_project.py"
     text = path.read_text(encoding="utf-8")
     old = 'require_all(reminder_engine, ["safeMaximumConcurrentAlarms = 120", "putIfAbsent"], "Güvenli ve kararlı alarm planı eksik", failures)'
