@@ -1,0 +1,128 @@
+name: MIZAN observation round 2 direct release
+
+on:
+  push:
+    branches: [agent/mizan-observation-round2-final]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified previous source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-payment-expense-final-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 30145940895
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore and patch source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, zipfile
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek artefakt bulunamadı: {archives}')
+          shutil.rmtree('workspace', ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archives[0]) as outer:
+              outer.extractall('workspace')
+          nested = sorted(Path('workspace').rglob('*SOURCE.zip'))
+          if nested:
+              temp = Path('workspace-unpacked')
+              shutil.rmtree(temp, ignore_errors=True)
+              temp.mkdir()
+              with zipfile.ZipFile(nested[0]) as source_zip:
+                  source_zip.extractall(temp)
+              shutil.rmtree('workspace')
+              temp.rename('workspace')
+          PY
+          python3 tools/apply_mizan_observation_round2.py "$SOURCE_ROOT"
+          python3 tools/fix_round2_validator.py "$SOURCE_ROOT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Analyze, test three times and build release
+        working-directory: ${{ env.SOURCE_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          exec > >(tee ci-logs/round2-direct-verification.log) 2>&1
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+          dart run flutter_launcher_icons
+          for pass in 1 2 3; do
+            echo "=== KONTROL TURU $pass/3 ==="
+            flutter analyze --fatal-warnings
+            python3 tools/validate_project.py
+          done
+          flutter test test/csv_backup_test.dart test/controller_test.dart --reporter expanded
+          flutter test test/report_service_test.dart test/combined_expense_totals_test.dart --reporter expanded
+          flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
+          flutter test test/pdf_report_test.dart --reporter expanded
+          flutter test test/visual_capture_test.dart --update-goldens
+          flutter test --reporter expanded
+          flutter build apk --release
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          unzip -t build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-observation-round2-direct-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-observation-round2-final-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Package source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd workspace
+          zip -qr ../LEFFERION-PRIME-MIZAN-OBSERVATION-ROUND2-FINAL-SOURCE.zip LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL -x '*/build/*' '*/.dart_tool/*' '*/ci-logs/*'
+          unzip -t ../LEFFERION-PRIME-MIZAN-OBSERVATION-ROUND2-FINAL-SOURCE.zip
+
+      - name: Upload source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-observation-round2-final-source
+          path: LEFFERION-PRIME-MIZAN-OBSERVATION-ROUND2-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
