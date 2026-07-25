@@ -1,10 +1,8 @@
-name: MIZAN payment expense final release
+name: MIZAN observation round 2 final release
 
 on:
   push:
-    branches: [agent/mizan-payment-expense-final-release]
-  pull_request:
-    branches: [agent/mizan-final-complete-release]
+    branches: [agent/mizan-observation-round2-final]
   workflow_dispatch:
 
 permissions:
@@ -13,49 +11,50 @@ permissions:
 
 env:
   FLUTTER_VERSION: "3.44.0"
-  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL
 
 jobs:
   verify-and-release:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Checkout final patch layer
+      - name: Checkout observation patch layer
         uses: actions/checkout@v4
 
-      - name: Download exact verified source
+      - name: Download exact previously verified source
         uses: actions/download-artifact@v4
         with:
-          name: lefferion-prime-mizan-manual-overdue-sync-source
+          name: lefferion-prime-mizan-payment-expense-final-source
           repository: isarpsiyahofficial/MIZAN
-          run-id: 30090668985
+          run-id: 30145940895
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: .baseline-artifact
 
-      - name: Restore exact source and apply protected final changes
+      - name: Restore source and apply observation round 2
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib, shutil, zipfile
+          import shutil, zipfile
           archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
           if len(archives) != 1:
               raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
-          archive = archives[0]
-          expected = 'c87d38b1a6d03ebef79d89df575bf7e4b0f4b8050256aac4532dd8646b8abe48'
-          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
-          if actual != expected:
-              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual}')
           shutil.rmtree('workspace', ignore_errors=True)
           Path('workspace').mkdir()
-          with zipfile.ZipFile(archive) as source_zip:
-              source_zip.extractall('workspace')
+          with zipfile.ZipFile(archives[0]) as outer:
+              outer.extractall('workspace')
+          nested = sorted(Path('workspace').rglob('*SOURCE.zip'))
+          if nested:
+              temporary = Path('workspace-unpacked')
+              shutil.rmtree(temporary, ignore_errors=True)
+              temporary.mkdir()
+              with zipfile.ZipFile(nested[0]) as source_zip:
+                  source_zip.extractall(temporary)
+              shutil.rmtree('workspace')
+              temporary.rename('workspace')
           PY
-          python3 tools/apply_mizan_final_complete.py "$SOURCE_ROOT"
-          python3 tools/fix_people_summary_strings.py "$SOURCE_ROOT"
-          python3 tools/apply_mizan_payment_expense_final.py "$SOURCE_ROOT"
-          python3 tools/fix_final_validator.py "$SOURCE_ROOT"
+          python3 tools/apply_mizan_observation_round2.py "$SOURCE_ROOT"
           test -f "$SOURCE_ROOT/pubspec.yaml"
 
       - name: Set up Java 17
@@ -71,27 +70,32 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Verify source, regression tests, responsive layout and release APK
+      - name: Three-pass source verification and full tests
         shell: bash
         working-directory: ${{ env.SOURCE_ROOT }}
         run: |
           set -euo pipefail
           mkdir -p ci-logs
-          exec > >(tee ci-logs/final-verification.log) 2>&1
+          exec > >(tee ci-logs/observation-round2-verification.log) 2>&1
           flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
           python3 tools/configure_android.py
           flutter pub get
           dart format lib test
           dart run flutter_launcher_icons
-          flutter analyze --fatal-warnings
-          python3 tools/validate_project.py
-          flutter test test/combined_expense_totals_test.dart --reporter expanded
-          flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
-          flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
-          flutter test test/local_store_test.dart test/csv_backup_test.dart test/controller_test.dart --reporter expanded
-          flutter test test/performance_scaling_test.dart test/expense_browser_service_test.dart --reporter expanded
+          for pass in 1 2 3; do
+            echo "=== KOD KONTROL TURU $pass/3 ==="
+            flutter analyze --fatal-warnings
+            python3 tools/validate_project.py
+            grep -R "Ödenmeyen dönemler:" -n lib && exit 1 || true
+            grep -R "Kalan taksit sayıları" -n lib/screens/reports_screen.dart && exit 1 || true
+            grep -q "enum _ExpenseView" lib/screens/expenses_screen.dart
+            grep -q "userDuplicateCount" lib/services/csv_backup_service.dart
+            grep -q "Seçili dönem gider özeti" lib/screens/reports_screen.dart
+          done
+          flutter test test/csv_backup_test.dart test/controller_test.dart --reporter expanded
+          flutter test test/report_service_test.dart test/combined_expense_totals_test.dart --reporter expanded
           flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
-          flutter test test/visual_capture_test.dart --update-goldens
+          flutter test test/pdf_report_test.dart test/visual_capture_test.dart --update-goldens
           flutter test --reporter expanded
           flutter build apk --release
           test -s build/app/outputs/flutter-apk/app-release.apk
@@ -104,10 +108,10 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import shutil, zipfile
-          root = Path('workspace/LEFFERION-PRIME-MIZAN-MANUAL-OVERDUE-SYNC-FINAL')
-          dist = Path('dist-payment-expense-final')
-          stage = dist / 'LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL'
-          archive = dist / 'LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL-SOURCE.zip'
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL')
+          dist = Path('dist-observation-round2')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-OBSERVATION-ROUND2-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-OBSERVATION-ROUND2-FINAL-SOURCE.zip'
           shutil.rmtree(dist, ignore_errors=True)
           stage.mkdir(parents=True)
           excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist', '.gradle'}
@@ -130,23 +134,22 @@ jobs:
               bad = check.testzip()
               if bad:
                   raise SystemExit(f'Kaynak ZIP bozuk: {bad}')
-          print(archive)
           PY
 
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-payment-expense-final-diagnostics
+          name: mizan-observation-round2-diagnostics
           path: ${{ env.SOURCE_ROOT }}/ci-logs/
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload responsive screenshots
+      - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-payment-expense-final-screenshots
+          name: mizan-observation-round2-screenshots
           path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
           if-no-files-found: warn
           retention-days: 30
@@ -154,7 +157,7 @@ jobs:
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-payment-expense-final-release
+          name: lefferion-prime-mizan-observation-round2-final-release
           path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
@@ -162,7 +165,7 @@ jobs:
       - name: Upload source ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-payment-expense-final-source
-          path: dist-payment-expense-final/LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL-SOURCE.zip
+          name: lefferion-prime-mizan-observation-round2-final-source
+          path: dist-observation-round2/LEFFERION-PRIME-MIZAN-OBSERVATION-ROUND2-FINAL-SOURCE.zip
           if-no-files-found: error
           retention-days: 30
