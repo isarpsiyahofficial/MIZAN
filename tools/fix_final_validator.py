@@ -3,10 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from add_expense_date_range import main as add_expense_date_range
+
 
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Kullanım: fix_final_validator.py <source-root>")
+    add_expense_date_range()
     root = Path(sys.argv[1]).resolve()
     path = root / "tools/validate_project.py"
     text = path.read_text(encoding="utf-8")
