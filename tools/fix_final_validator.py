@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from add_expense_date_range import main as add_expense_date_range
+from fix_notification_full_state import main as fix_notification_full_state
 from fix_report_period_amount import main as fix_report_period_amount
 
 
@@ -11,6 +12,7 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Kullanım: fix_final_validator.py <source-root>")
     fix_report_period_amount()
+    fix_notification_full_state()
     add_expense_date_range()
     root = Path(sys.argv[1]).resolve()
     path = root / "tools/validate_project.py"
