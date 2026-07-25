@@ -19,12 +19,18 @@ def main() -> None:
     expenses = expenses_path.read_text(encoding="utf-8")
     expenses = replace_once(
         expenses,
+        "import 'package:flutter/material.dart';",
+        "import 'package:flutter/material.dart';\nimport 'package:flutter/rendering.dart';",
+        "ScrollCacheExtent içe aktarımı",
+    )
+    expenses = replace_once(
+        expenses,
         """    return ListView(
       key: const PageStorageKey('expenses'),
       padding: EdgeInsets.fromLTRB(padding, 18, padding, 110),""",
         """    return ListView(
       key: const PageStorageKey('expenses'),
-      cacheExtent: 2400,
+      scrollCacheExtent: const ScrollCacheExtent.pixels(2400),
       padding: EdgeInsets.fromLTRB(padding, 18, padding, 110),""",
         "Giderler liste önbelleği",
     )
@@ -155,7 +161,9 @@ def main() -> None:
     forms_path.write_text(forms, encoding="utf-8")
 
     checks = {
-        expenses_path: ("cacheExtent: 2400",),
+        expenses_path: (
+            "scrollCacheExtent: const ScrollCacheExtent.pixels(2400)",
+        ),
         reports_path: ("_ReportFilters(", "_CurrentExpenseOverview("),
         settings_path: ("title: 'Planlanan bildirim'",),
         forms_path: ("DropdownButtonFormField<RentEntryKind>(", "isExpanded: true"),
