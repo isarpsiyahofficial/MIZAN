@@ -55,6 +55,7 @@ jobs:
           python3 tools/apply_mizan_final_complete.py "$SOURCE_ROOT"
           python3 tools/fix_people_summary_strings.py "$SOURCE_ROOT"
           python3 tools/apply_mizan_payment_expense_final.py "$SOURCE_ROOT"
+          python3 tools/fix_final_validator.py "$SOURCE_ROOT"
           test -f "$SOURCE_ROOT/pubspec.yaml"
 
       - name: Set up Java 17
