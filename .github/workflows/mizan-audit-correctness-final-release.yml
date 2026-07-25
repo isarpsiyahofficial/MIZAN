@@ -2,7 +2,7 @@ name: MIZAN audit correctness final release
 
 on:
   push:
-    branches: [agent/mizan-payment-expense-final-release]
+    branches: [agent/mizan-audit-correctness-final-release]
   pull_request:
     branches: [agent/mizan-payment-expense-final-release]
   workflow_dispatch:
