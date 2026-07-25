@@ -4,11 +4,13 @@ import sys
 from pathlib import Path
 
 from add_expense_date_range import main as add_expense_date_range
+from fix_monthly_first_due_date import main as fix_monthly_first_due_date
 
 
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Kullanım: fix_final_validator.py <source-root>")
+    fix_monthly_first_due_date()
     add_expense_date_range()
     root = Path(sys.argv[1]).resolve()
     path = root / "tools/validate_project.py"
