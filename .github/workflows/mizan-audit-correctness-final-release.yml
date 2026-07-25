@@ -1,0 +1,213 @@
+name: MIZAN audit correctness final release
+
+on:
+  push:
+    branches: [agent/mizan-payment-expense-final-release]
+  pull_request:
+    branches: [agent/mizan-payment-expense-final-release]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL
+
+jobs:
+  triple-audit-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Checkout final audit layer
+        uses: actions/checkout@v4
+
+      - name: Download exact verified payment-expense source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-payment-expense-final-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 30145940895
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline-artifact
+
+      - name: Restore exact verified source and apply final audit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+
+          archives = sorted(Path('.baseline-artifact').rglob('*.zip'))
+          if len(archives) != 1:
+              raise SystemExit(f'Beklenen tek kaynak ZIP bulunamadı: {archives}')
+          archive = archives[0]
+          expected = 'c61845fc906b4deb18fcc829d2301b07d242a4857d02245f33c92917a320af7d'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Kaynak SHA uyuşmuyor: {actual}')
+          shutil.rmtree('workspace', ignore_errors=True)
+          Path('workspace').mkdir()
+          with zipfile.ZipFile(archive) as source_zip:
+              source_zip.extractall('workspace')
+          PY
+          python3 tools/apply_mizan_audit_correctness_final.py "$SOURCE_ROOT"
+          test -f "$SOURCE_ROOT/pubspec.yaml"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Prepare Flutter project
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-logs
+          exec > >(tee ci-logs/prepare.log) 2>&1
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+          dart run flutter_launcher_icons
+          flutter analyze --fatal-warnings
+
+      - name: Triple code and calculation audit
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          exec > >(tee ci-logs/triple-audit.log) 2>&1
+          for pass in 1 2 3; do
+            echo "===== DENETİM TURU ${pass}/3 ====="
+            python3 tools/validate_project.py
+            python3 tools/validate_audit_correctness_final.py
+            flutter test \
+              test/audit_correctness_final_test.dart \
+              test/calculation_engine_audit_test.dart \
+              test/audit_ui_final_test.dart \
+              --reporter expanded
+          done
+
+      - name: Run backup, calculation, report and UI regression matrix
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          exec > >(tee ci-logs/regression-matrix.log) 2>&1
+          flutter test test/csv_backup_test.dart test/local_store_test.dart test/controller_test.dart --reporter expanded
+          flutter test test/model_test.dart test/bill_rent_schedule_test.dart test/final_installment_period_test.dart --reporter expanded
+          flutter test test/overdue_calendar_tracking_test.dart test/manual_overdue_edit_confirmation_test.dart --reporter expanded
+          flutter test test/combined_expense_totals_test.dart test/expense_browser_service_test.dart --reporter expanded
+          flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart test/automatic_notification_sync_test.dart --reporter expanded
+          flutter test test/responsive_test.dart test/ui_interaction_test.dart test/widget_test.dart --reporter expanded
+          flutter test test/performance_scaling_test.dart --reporter expanded
+
+      - name: Run golden and complete test suite
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          exec > >(tee ci-logs/complete-suite.log) 2>&1
+          flutter test test/visual_capture_test.dart --update-goldens --reporter expanded
+          flutter test --reporter expanded
+
+      - name: Build and verify release APK
+        shell: bash
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: |
+          set -euo pipefail
+          exec > >(tee ci-logs/release-build.log) 2>&1
+          flutter build apk --release
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          unzip -t build/app/outputs/flutter-apk/app-release.apk
+          sha256sum build/app/outputs/flutter-apk/app-release.apk | tee ci-logs/APK-SHA256.txt
+
+      - name: Package verified source and audit manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL')
+          dist = Path('dist-audit-correctness-final')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-AUDIT-CORRECTNESS-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-AUDIT-CORRECTNESS-FINAL-SOURCE.zip'
+          shutil.rmtree(dist, ignore_errors=True)
+          stage.mkdir(parents=True)
+          excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', 'dist', '.gradle', '__pycache__'}
+          excluded_files = {'.flutter-plugins', '.flutter-plugins-dependencies', '.packages', 'local.properties'}
+          for source in root.rglob('*'):
+              relative = source.relative_to(root)
+              if not relative.parts or any(part in excluded_roots for part in relative.parts) or source.name in excluded_files:
+                  continue
+              target = stage / relative
+              if source.is_dir():
+                  target.mkdir(parents=True, exist_ok=True)
+              elif source.is_file():
+                  if source.suffix == '.pyc':
+                      continue
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+              for source in stage.rglob('*'):
+                  if source.is_file():
+                      output.write(source, source.relative_to(stage.parent))
+          with zipfile.ZipFile(archive) as check:
+              bad = check.testzip()
+              if bad:
+                  raise SystemExit(f'Kaynak ZIP bozuk: {bad}')
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          (dist / 'SOURCE-SHA256.txt').write_text(f'{digest}  {archive.name}\n', encoding='utf-8')
+          print(archive)
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-audit-correctness-final-diagnostics
+          path: ${{ env.SOURCE_ROOT }}/ci-logs/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-audit-correctness-final-screenshots
+          path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload final release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-audit-correctness-final-release
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload final source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-audit-correctness-final-source
+          path: |
+            dist-audit-correctness-final/LEFFERION-PRIME-MIZAN-AUDIT-CORRECTNESS-FINAL-SOURCE.zip
+            dist-audit-correctness-final/SOURCE-SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
