@@ -1,0 +1,1 @@
+MİZAN nihai hesaplama ve arayüz denetimi release tetikleyicisi.
