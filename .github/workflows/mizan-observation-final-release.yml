@@ -46,6 +46,7 @@ jobs:
           with zipfile.ZipFile(archive) as z: z.extractall('workspace')
           PY
           python3 tools/apply_mizan_observation_round.py "$SOURCE_ROOT"
+          python3 tools/fix_observation_compile.py "$SOURCE_ROOT"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
