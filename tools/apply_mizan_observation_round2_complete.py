@@ -21,9 +21,17 @@ def main() -> None:
         raise SystemExit(f"MİZAN kaynak kökü bulunamadı: {root}")
 
     chunk_dir = Path(__file__).resolve().parent / "round2_patch_chunks"
-    chunks = sorted(chunk_dir.glob("chunk_*.txt"))
-    if len(chunks) != 5:
-        raise SystemExit(f"Tam patch parçaları eksik: {chunks}")
+    chunk_names = [
+        "chunk_00.txt",
+        *(f"chunk_01_{index:02d}.txt" for index in range(7)),
+        "chunk_02.txt",
+        "chunk_03.txt",
+        "chunk_04.txt",
+    ]
+    chunks = [chunk_dir / name for name in chunk_names]
+    missing_chunks = [str(chunk) for chunk in chunks if not chunk.is_file()]
+    if missing_chunks:
+        raise SystemExit(f"Tam patch parçaları eksik: {missing_chunks}")
     encoded = "".join(chunk.read_text(encoding="utf-8").strip() for chunk in chunks)
     patch = zlib.decompress(base64.b64decode(encoded))
     actual = hashlib.sha256(patch).hexdigest()
