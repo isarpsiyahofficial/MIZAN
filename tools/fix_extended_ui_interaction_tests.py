@@ -32,25 +32,48 @@ def main() -> None:
     )
     text = replace_once(
         text,
+        """    final combinedReport = find.textContaining(
+      'gerçekleşen toplam ödeme-gider raporu',
+    );""",
+        """    final combinedReport = find.textContaining(
+      'Normal giderler ile banka, şahıs, fatura, abonelik, kira ve taksit',
+    );""",
+        "Yeni toplam gider açıklaması kontrolü",
+    )
+    text = replace_once(
+        text,
         """    expect(find.text('24.07.2026 Cuma'), findsOneWidget);
     await tester.tap(find.text('24.07.2026 Cuma'));
     await tester.pumpAndSettle();""",
         """    final matchingDay = find.text('24.07.2026 Cuma');
+    final expenseScrollable = find.byType(Scrollable).first;
     await tester.scrollUntilVisible(
       matchingDay,
       180,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: expenseScrollable,
     );
+    await tester.drag(expenseScrollable, const Offset(0, -180));
+    await tester.pumpAndSettle();
     expect(matchingDay, findsOneWidget);
-    await tester.tap(matchingDay);
+    final matchingDayHeader = find.ancestor(
+      of: matchingDay,
+      matching: find.byType(InkWell),
+    );
+    expect(matchingDayHeader, findsOneWidget);
+    await tester.tap(matchingDayHeader);
     await tester.pumpAndSettle();""",
         "Uzatılmış gider arama sonucu kontrolü",
     )
     path.write_text(text, encoding="utf-8")
     verified = path.read_text(encoding="utf-8")
-    if "final dailyExpenses" not in verified or "final matchingDay" not in verified:
-        raise SystemExit("Uzatılmış ekran etkileşim testleri doğrulanamadı.")
-    print("Gider ekranı etkileşim testleri uzatılmış güvenli düzeni kaydırarak doğruluyor.")
+    for token in (
+        "final dailyExpenses",
+        "Normal giderler ile banka, şahıs",
+        "final matchingDayHeader",
+    ):
+        if token not in verified:
+            raise SystemExit(f"Uzatılmış ekran etkileşim testi eksik: {token}")
+    print("Gider ve rapor etkileşim testleri uzatılmış güvenli düzeni kaydırarak doğruluyor.")
 
 
 if __name__ == "__main__":
