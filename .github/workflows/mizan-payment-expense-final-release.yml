@@ -3,6 +3,8 @@ name: MIZAN payment expense final release
 on:
   push:
     branches: [agent/mizan-payment-expense-final-release]
+  pull_request:
+    branches: [agent/mizan-final-complete-release]
   workflow_dispatch:
 
 permissions:
