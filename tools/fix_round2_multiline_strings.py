@@ -89,6 +89,62 @@ Not: $note'}',""",
     )
     pdf_path.write_text(pdf, encoding="utf-8")
 
+    cards_path = root / "lib/widgets/mizan_cards.dart"
+    cards = cards_path.read_text(encoding="utf-8")
+    cards = replace_once(
+        cards,
+        """              if (onTap != null) ...[
+                const SizedBox(height: 8),
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Detayı gör',
+                      style: TextStyle(
+                        color: MizanTheme.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(width: 4),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: MizanTheme.muted,
+                    ),
+                  ],
+                ),
+              ],""",
+        """              if (onTap != null) ...[
+                const SizedBox(height: 8),
+                const SizedBox(
+                  width: double.infinity,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Detayı gör',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: MizanTheme.muted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 4),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 18,
+                        color: MizanTheme.muted,
+                      ),
+                    ],
+                  ),
+                ),
+              ],""",
+        "Özet kartı detay bağlantısı responsive düzeni",
+    )
+    cards_path.write_text(cards, encoding="utf-8")
+
     pdf_test_path = root / "test/pdf_report_test.dart"
     pdf_test = pdf_test_path.read_text(encoding="utf-8")
     pdf_test = replace_once(
@@ -119,6 +175,76 @@ Not: $note'}',""",
     )
     report_test_path.write_text(before + marker + after, encoding="utf-8")
 
+    ui_test_path = root / "test/ui_interaction_test.dart"
+    ui_test = ui_test_path.read_text(encoding="utf-8")
+    ui_test = replace_once(
+        ui_test,
+        """    final remaining = find.text('Kalan ödeme yükü');
+    await tester.scrollUntilVisible(
+      remaining,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(remaining);
+    await tester.pumpAndSettle();""",
+        """    final remaining = find.text('Kalan ödeme yükü');
+    await tester.scrollUntilVisible(
+      remaining,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final remainingCard = find.ancestor(
+      of: remaining,
+      matching: find.byType(InkWell),
+    );
+    await tester.ensureVisible(remainingCard);
+    await tester.pumpAndSettle();
+    await tester.tap(remainingCard);
+    await tester.pumpAndSettle();""",
+        "Rapor kalan yük kartı etkileşim testi",
+    )
+    ui_test = replace_once(
+        ui_test,
+        """    await tester.tap(find.text('Kişi detaylarını aç'));
+    await tester.pumpAndSettle();""",
+        """    final personDetailsButton = find.widgetWithText(
+      FilledButton,
+      'Kişi detaylarını aç',
+    );
+    await tester.scrollUntilVisible(
+      personDetailsButton,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(personDetailsButton);
+    await tester.pumpAndSettle();
+    await tester.tap(personDetailsButton);
+    await tester.pumpAndSettle();""",
+        "Kişi ayrıntısı düğmesi etkileşim testi",
+    )
+    ui_test = replace_once(
+        ui_test,
+        """    await _tapNavigation(tester, Icons.bar_chart_outlined);
+    await tester.tap(find.text('Tüm kişiler'));
+    await tester.pumpAndSettle();""",
+        """    await _tapNavigation(tester, Icons.bar_chart_outlined);
+    final peopleFilterButton = find.widgetWithText(
+      OutlinedButton,
+      'Tüm kişiler',
+    );
+    await tester.scrollUntilVisible(
+      peopleFilterButton,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(peopleFilterButton);
+    await tester.pumpAndSettle();
+    await tester.tap(peopleFilterButton);
+    await tester.pumpAndSettle();""",
+        "Rapor kişi filtresi etkileşim testi",
+    )
+    ui_test_path.write_text(ui_test, encoding="utf-8")
+
     checks = {
         expenses_path: [
             "import 'people_screen.dart';",
@@ -130,10 +256,19 @@ Not: $note'}',""",
             "\\nNot: $note",
             "${_typeLabel(detail.type)}\\n${detail.recordTitle}",
         ],
+        cards_path: [
+            "width: double.infinity",
+            "overflow: TextOverflow.ellipsis",
+        ],
         pdf_test_path: ["quantity: 1.0 +", "unitPrice: 125.0 +"],
         report_test_path: [
             "expenseCategories: const []",
             "expenses: const []",
+        ],
+        ui_test_path: [
+            "final remainingCard",
+            "final personDetailsButton",
+            "final peopleFilterButton",
         ],
     }
     missing: list[str] = []
@@ -143,8 +278,8 @@ Not: $note'}',""",
             if token not in source:
                 missing.append(f"{path.name}:{token}")
     if missing:
-        raise SystemExit(f"İkinci tur derleme düzeltmesi eksik: {missing}")
-    print("İkinci tur Dart metin, simge, ayrıntı ve test derleme düzeltmeleri uygulandı.")
+        raise SystemExit(f"İkinci tur derleme ve responsive düzeltmesi eksik: {missing}")
+    print("İkinci tur derleme, responsive kart ve etkileşim test düzeltmeleri uygulandı.")
 
 
 if __name__ == "__main__":
