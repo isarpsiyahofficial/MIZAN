@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from add_expense_date_range import main as add_expense_date_range
+from fix_expense_card_trailing_overflow import main as fix_expense_card_trailing_overflow
 from fix_expense_day_numeric_date import main as fix_expense_day_numeric_date
 from fix_extended_ui_interaction_tests import main as fix_extended_ui_interaction_tests
 from fix_final_ui_regressions import main as fix_final_ui_regressions
@@ -19,6 +20,7 @@ def main() -> None:
     fix_expense_day_numeric_date()
     add_expense_date_range()
     fix_final_ui_regressions()
+    fix_expense_card_trailing_overflow()
     fix_extended_ui_interaction_tests()
     root = Path(sys.argv[1]).resolve()
     path = root / "tools/validate_project.py"
