@@ -53,7 +53,7 @@ jobs:
               shutil.rmtree('workspace')
               temp.rename('workspace')
           PY
-          python3 tools/apply_mizan_observation_round2.py "$SOURCE_ROOT"
+          python3 tools/apply_mizan_observation_round2_complete.py "$SOURCE_ROOT"
           python3 tools/fix_round2_validator.py "$SOURCE_ROOT"
 
       - uses: actions/setup-java@v4
