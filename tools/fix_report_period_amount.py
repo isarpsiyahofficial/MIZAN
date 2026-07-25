@@ -4,23 +4,85 @@ import sys
 from pathlib import Path
 
 
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f"{label} bulunamadı; kaynak beklenenden farklı.")
+    return text.replace(old, new, 1)
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Kullanım: fix_report_period_amount.py <source-root>")
     root = Path(sys.argv[1]).resolve()
     path = root / "lib/models/mizan_models.dart"
     text = path.read_text(encoding="utf-8")
-    old = """            amount: rent.dueAmountAt(reference),
-            dueDate: rent.effectiveDueDateAt(reference),"""
-    new = """            amount: rent.plannedCycleAmount,
-            dueDate: rent.effectiveDueDateAt(reference),"""
-    if old not in text:
-        raise SystemExit("Kira/taksit dönem tutarı kayıt referansı bulunamadı.")
-    text = text.replace(old, new, 1)
+
+    text = replace_once(
+        text,
+        """  DateTime get firstScheduledDueDate => dueMode == DebtDueMode.monthlyDay
+      ? _dayOfMonth(dueDate, dueDayOfMonth ?? dueDate.day)
+      : _dateOnly(dueDate);""",
+        """  DateTime get firstScheduledDueDate => _dateOnly(dueDate);""",
+        "Banka borcu ilk aylık vadesi",
+    )
+    text = replace_once(
+        text,
+        """  DateTime get firstScheduledDueDate => isMonthly
+      ? _dayOfMonth(
+          DateTime(dueDate.year, dueDate.month),
+          paymentDay ?? dueDate.day,
+        )
+      : _dateOnly(dueDate);""",
+        """  DateTime get firstScheduledDueDate => _dateOnly(dueDate);""",
+        "Fatura ilk aylık vadesi",
+    )
+    text = replace_once(
+        text,
+        """  DateTime get firstScheduledDueDate => isMonthlySchedule
+      ? _dayOfMonth(DateTime(dueDate.year, dueDate.month), paymentDay)
+      : _dateOnly(dueDate);""",
+        """  DateTime get firstScheduledDueDate => _dateOnly(dueDate);""",
+        "Kira/taksit ilk aylık vadesi",
+    )
+    text = replace_once(
+        text,
+        """  double get remainingAmount => outstandingAmountAt(DateTime.now());
+  double get scheduledPaymentAmount => dueAmountAt(DateTime.now());""",
+        """  double get remainingAmount {
+    if (kind == RentEntryKind.homeRent ||
+        (kind == RentEntryKind.custom &&
+            recurringMonthly &&
+            installmentCount == null)) {
+      return amount;
+    }
+    final value = amount - paidAmount;
+    return value <= 0 ? 0 : double.parse(value.toStringAsFixed(2));
+  }
+
+  double get scheduledPaymentAmount => dueAmountAt(DateTime.now());""",
+        "Kira/taksit gerçek kalan toplamı",
+    )
+
+    if "amount: rent.plannedCycleAmount" in text:
+        text = text.replace(
+            "amount: rent.plannedCycleAmount",
+            "amount: rent.dueAmountAt(reference)",
+            1,
+        )
+    if "amount: rent.dueAmountAt(reference)" not in text:
+        raise SystemExit("Kira/taksit dönem tutarı kayıt referansı doğrulanamadı.")
+
     path.write_text(text, encoding="utf-8")
-    if "amount: rent.plannedCycleAmount" not in path.read_text(encoding="utf-8"):
-        raise SystemExit("Kira/taksit dönem tutarı düzeltmesi doğrulanamadı.")
-    print("Kira/taksit rapor yükü kalan toplam yerine güncel dönem tutarını kullanıyor.")
+    verified = path.read_text(encoding="utf-8")
+    required = (
+        "DateTime get firstScheduledDueDate => _dateOnly(dueDate);",
+        "final value = amount - paidAmount;",
+        "amount: rent.dueAmountAt(reference)",
+    )
+    for token in required:
+        if token not in verified:
+            raise SystemExit(f"Kira/taksit dönem düzeltmesi eksik: {token}")
+    print("İlk ödeme tarihi korunuyor; sonraki aylar ödeme gününe göre ilerliyor ve kalan toplam dönem tutarından ayrılıyor.")
 
 
 if __name__ == "__main__":
