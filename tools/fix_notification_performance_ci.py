@@ -14,10 +14,11 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Kullanım: fix_notification_performance_ci.py <source-root>")
     root = Path(sys.argv[1]).resolve()
-    path = root / "lib/screens/settings_screen.dart"
-    text = path.read_text(encoding="utf-8")
-    text = replace_once(
-        text,
+
+    settings_path = root / "lib/screens/settings_screen.dart"
+    settings = settings_path.read_text(encoding="utf-8")
+    settings = replace_once(
+        settings,
         """    required this.ready,
     this.neutral = false,
   });""",
@@ -25,8 +26,8 @@ def main() -> None:
   });""",
         "Bildirim sistem durumu kurucusu",
     )
-    text = replace_once(
-        text,
+    settings = replace_once(
+        settings,
         """  final bool ready;
   final bool neutral;
 
@@ -44,10 +45,69 @@ def main() -> None:
     final color = ready ? MizanTheme.green : MizanTheme.red;""",
         "Bildirim sistem durumu renk hesabı",
     )
-    path.write_text(text, encoding="utf-8")
-    if "this.neutral" in path.read_text(encoding="utf-8"):
-        raise SystemExit("Kullanılmayan neutral parametresi kaldı.")
-    print("Bildirim ayarları kullanılmayan parametre uyarısı giderildi.")
+    settings_path.write_text(settings, encoding="utf-8")
+
+    reminder_test_path = root / "test/reminder_engine_test.dart"
+    reminder_test = reminder_test_path.read_text(encoding="utf-8")
+    reminder_test = replace_once(
+        reminder_test,
+        "item.scheduledAt.day == 5 &&",
+        "item.scheduledAt.day == 1 &&",
+        "Aylık ödeme bildiriminin sıradaki dakik çalışma günü",
+    )
+    reminder_test = replace_once(
+        reminder_test,
+        """    expect(reminders.first.message, contains('2.500,00 TL'));""",
+        """    expect(reminders.first.message, contains('05.07.2026'));
+    expect(reminders.first.message, contains('2.500,00 TL'));""",
+        "Aylık ödeme bildirimi vade metni",
+    )
+    reminder_test_path.write_text(reminder_test, encoding="utf-8")
+
+    final_test_path = root / "test/notification_performance_report_final_test.dart"
+    final_test = final_test_path.read_text(encoding="utf-8")
+    final_test = replace_once(
+        final_test,
+        """    expect(find.text('Açık planlanan ödemeler'), findsOneWidget);
+    expect(find.textContaining('7 açık kayıt'), findsOneWidget);
+    expect(find.text('Bu ay yapılan ödemeler'), findsOneWidget);
+    expect(find.textContaining('1 ödeme'), findsOneWidget);""",
+        """    expect(find.text('Açık planlanan ödemeler'), findsOneWidget);
+    expect(find.textContaining('7 açık kayıt'), findsOneWidget);
+    final paidSection = find.text('Bu ay yapılan ödemeler');
+    await tester.scrollUntilVisible(
+      paidSection,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(paidSection, findsOneWidget);
+    expect(find.textContaining('1 ödeme'), findsOneWidget);""",
+        "Aylık ödeme modalı yapılan ödemeler bölümü testi",
+    )
+    final_test_path.write_text(final_test, encoding="utf-8")
+
+    checks = {
+        settings_path: ["final color = ready ? MizanTheme.green : MizanTheme.red;"],
+        reminder_test_path: [
+            "item.scheduledAt.day == 1",
+            "contains('05.07.2026')",
+        ],
+        final_test_path: [
+            "final paidSection = find.text('Bu ay yapılan ödemeler')",
+            "scrollUntilVisible",
+        ],
+    }
+    problems: list[str] = []
+    for path, tokens in checks.items():
+        source = path.read_text(encoding="utf-8")
+        for token in tokens:
+            if token not in source:
+                problems.append(f"{path.name}: {token}")
+    if "this.neutral" in settings_path.read_text(encoding="utf-8"):
+        problems.append("settings_screen.dart: kullanılmayan neutral parametresi kaldı")
+    if problems:
+        raise SystemExit(f"Bildirim-performans CI düzeltmeleri eksik: {problems}")
+    print("Bildirim ayarları ve yeni davranış testleri güncel sisteme uyumlandı.")
 
 
 if __name__ == "__main__":
