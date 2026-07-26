@@ -74,8 +74,8 @@ def main() -> None:
             "_dayHeader",
         ],
         "test/notification_performance_report_final_test.dart": [
-            "27.800",
-            "sekizinci gün",
+            "unitPrice: 27800",
+            "['day-7']",
         ],
     }
     forbidden = {
