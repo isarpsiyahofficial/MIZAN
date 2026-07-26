@@ -58,7 +58,7 @@ def main() -> None:
     reminder_test = replace_once(
         reminder_test,
         """    expect(reminders.first.message, contains('2.500,00 TL'));""",
-        """    expect(reminders.first.message, contains('05.07.2026'));
+        """    expect(reminders.first.message, contains('5 Tem 2026'));
     expect(reminders.first.message, contains('2.500,00 TL'));""",
         "Aylık ödeme bildirimi vade metni",
     )
@@ -90,7 +90,7 @@ def main() -> None:
         settings_path: ["final color = ready ? MizanTheme.green : MizanTheme.red;"],
         reminder_test_path: [
             "item.scheduledAt.day == 1",
-            "contains('05.07.2026')",
+            "contains('5 Tem 2026')",
         ],
         final_test_path: [
             "final paidSection = find.text('Bu ay yapılan ödemeler')",
