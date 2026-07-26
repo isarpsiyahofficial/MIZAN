@@ -1,0 +1,108 @@
+name: MIZAN overdue calendar verification
+
+on:
+  push:
+    branches: [agent/mizan-overdue-calendar-final]
+  pull_request:
+    branches: [agent/mizan-safe-clear-ui-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  SOURCE_ROOT: workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore latest verified source
+        uses: actions/download-artifact@v4
+        with:
+          name: lefferion-prime-mizan-auto-notification-sync-final-source
+          repository: isarpsiyahofficial/MIZAN
+          run-id: 29995672312
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .baseline
+
+      - name: Extract and apply only overdue calendar changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p workspace
+          ARCHIVE=$(find .baseline -name '*.zip' -type f | head -1)
+          test -n "$ARCHIVE"
+          unzip -q "$ARCHIVE" -d workspace
+          python3 tools/apply_overdue_calendar_fix_v2.py "$SOURCE_ROOT"
+          python3 tools/apply_overdue_payment_reduction.py "$SOURCE_ROOT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Analyze, regress and build
+        working-directory: ${{ env.SOURCE_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 tools/configure_android.py
+          flutter pub get
+          dart format lib test
+          flutter analyze --fatal-warnings
+          python3 tools/validate_project.py
+          flutter test test/overdue_calendar_regression_test.dart --reporter expanded
+          flutter test test/csv_backup_test.dart --reporter expanded
+          flutter test test/reminder_engine_test.dart test/alarm_regression_test.dart --reporter expanded
+          flutter test test/report_service_test.dart test/pdf_report_test.dart --reporter expanded
+          flutter test test/responsive_test.dart test/ui_interaction_test.dart --reporter expanded
+          flutter test test/visual_capture_test.dart --update-goldens
+          flutter test --reporter expanded
+          flutter build apk --release
+          unzip -t build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Package verified source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          root = Path('workspace/LEFFERION-PRIME-MIZAN-AUTO-NOTIFICATION-SYNC-FINAL')
+          out = Path('dist/LEFFERION-PRIME-MIZAN-OVERDUE-CALENDAR-FINAL-SOURCE.zip')
+          out.parent.mkdir(exist_ok=True)
+          excluded = {'.git', '.dart_tool', 'build', '.gradle', 'local.properties'}
+          with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+              for path in root.rglob('*'):
+                  rel = path.relative_to(root)
+                  if path.is_file() and not any(part in excluded for part in rel.parts):
+                      zf.write(path, Path('LEFFERION-PRIME-MIZAN-OVERDUE-CALENDAR-FINAL') / rel)
+          PY
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-overdue-calendar-final-apk
+          path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload verified source
+        uses: actions/upload-artifact@v4
+        with:
+          name: lefferion-prime-mizan-overdue-calendar-final-source
+          path: dist/LEFFERION-PRIME-MIZAN-OVERDUE-CALENDAR-FINAL-SOURCE.zip
+          if-no-files-found: error
+          retention-days: 30
