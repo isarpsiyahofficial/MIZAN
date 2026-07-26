@@ -118,6 +118,24 @@ jobs:
           set -o pipefail
           python3 tools/apply_round3_final_fixes.py 2>&1 | tee ci-logs/final-targeted-fixes.log
 
+      - name: Remove duplicate PDF output directory declaration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('test/pdf_report_test.dart')
+          text = path.read_text(encoding='utf-8')
+          declaration = "    final outputDirectory = Directory('test/output');"
+          count = text.count(declaration)
+          if count != 2:
+              raise SystemExit(f'Beklenen iki PDF çıktı dizini tanımı bulunamadı: {count}')
+          first = text.find(declaration)
+          second = text.find(declaration, first + len(declaration))
+          text = text[:second] + text[second + len(declaration):]
+          path.write_text(text, encoding='utf-8')
+          print('İkinci PDF çıktı dizini tanımı kaldırıldı.')
+          PY
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
