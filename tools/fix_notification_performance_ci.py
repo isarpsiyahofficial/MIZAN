@@ -86,6 +86,16 @@ def main() -> None:
     )
     final_test_path.write_text(final_test, encoding="utf-8")
 
+    responsive_test_path = root / "test/responsive_test.dart"
+    responsive_test = responsive_test_path.read_text(encoding="utf-8")
+    responsive_test = replace_once(
+        responsive_test,
+        "expect(find.text('Bildirim türü'), findsOneWidget);",
+        "expect(find.text('Durum ve saat'), findsOneWidget);",
+        "Alarm türü kaldırılan bildirim ayrıntısı responsive testi",
+    )
+    responsive_test_path.write_text(responsive_test, encoding="utf-8")
+
     checks = {
         settings_path: ["final color = ready ? MizanTheme.green : MizanTheme.red;"],
         reminder_test_path: [
@@ -96,6 +106,7 @@ def main() -> None:
             "final paidSection = find.text('Bu ay yapılan ödemeler')",
             "scrollUntilVisible",
         ],
+        responsive_test_path: ["expect(find.text('Durum ve saat'), findsOneWidget);"],
     }
     problems: list[str] = []
     for path, tokens in checks.items():
@@ -107,7 +118,7 @@ def main() -> None:
         problems.append("settings_screen.dart: kullanılmayan neutral parametresi kaldı")
     if problems:
         raise SystemExit(f"Bildirim-performans CI düzeltmeleri eksik: {problems}")
-    print("Bildirim ayarları ve yeni davranış testleri güncel sisteme uyumlandı.")
+    print("Bildirim ayarları, davranış ve responsive testleri güncel sisteme uyumlandı.")
 
 
 if __name__ == "__main__":
