@@ -137,7 +137,7 @@ def main() -> None:
         settings_path: ["final color = ready ? MizanTheme.green : MizanTheme.red;"],
         reminder_engine_path: [
             "? 'Ödeme ${record.overdueDays} gün gecikti.'",
-            "'$timing Kalan tutar",
+            "$timing Kalan tutar",
         ],
         reminder_test_path: [
             "item.scheduledAt.day == 1",
