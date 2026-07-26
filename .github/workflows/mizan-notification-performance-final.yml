@@ -67,6 +67,7 @@ jobs:
               shutil.move(str(roots[0]), str(expected))
           PY
           python3 tools/apply_mizan_notification_performance_final.py "$SOURCE_ROOT"
+          python3 tools/fix_notification_performance_ci.py "$SOURCE_ROOT"
           test -f "$SOURCE_ROOT/pubspec.yaml"
 
       - name: Set up Java 17
