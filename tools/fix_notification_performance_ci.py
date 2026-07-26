@@ -47,6 +47,43 @@ def main() -> None:
     )
     settings_path.write_text(settings, encoding="utf-8")
 
+    reminder_engine_path = root / "lib/services/reminder_engine.dart"
+    reminder_engine = reminder_engine_path.read_text(encoding="utf-8")
+    reminder_engine = replace_once(
+        reminder_engine,
+        """        reminders.add(
+          ScheduledReminder(
+            id: stableNotificationId(key),
+            sourceId: record.sourceId,
+            kind: ReminderKind.payment,
+            title: '${record.type.label}: ${record.title}',
+            message:
+                '${slot.message.trim()} Son ödeme ${shortDate(dueDay)}. Kalan tutar ${money(record.amount)}.'
+                    .trim(),
+            scheduledAt: scheduledAt,
+            repeatsDaily: true,
+          ),
+        );""",
+        """        final timing = record.overdueDays > 0
+            ? 'Ödeme ${record.overdueDays} gün gecikti.'
+            : 'Son ödeme ${shortDate(dueDay)}.';
+        reminders.add(
+          ScheduledReminder(
+            id: stableNotificationId(key),
+            sourceId: record.sourceId,
+            kind: ReminderKind.payment,
+            title: '${record.type.label}: ${record.title}',
+            message:
+                '${slot.message.trim()} $timing Kalan tutar ${money(record.amount)}.'
+                    .trim(),
+            scheduledAt: scheduledAt,
+            repeatsDaily: true,
+          ),
+        );""",
+        "Gecikmiş ödeme bildiriminde yalnız gün sayısı",
+    )
+    reminder_engine_path.write_text(reminder_engine, encoding="utf-8")
+
     reminder_test_path = root / "test/reminder_engine_test.dart"
     reminder_test = reminder_test_path.read_text(encoding="utf-8")
     reminder_test = replace_once(
@@ -98,6 +135,10 @@ def main() -> None:
 
     checks = {
         settings_path: ["final color = ready ? MizanTheme.green : MizanTheme.red;"],
+        reminder_engine_path: [
+            "? 'Ödeme ${record.overdueDays} gün gecikti.'",
+            "'$timing Kalan tutar",
+        ],
         reminder_test_path: [
             "item.scheduledAt.day == 1",
             "contains('5 Tem 2026')",
@@ -118,7 +159,7 @@ def main() -> None:
         problems.append("settings_screen.dart: kullanılmayan neutral parametresi kaldı")
     if problems:
         raise SystemExit(f"Bildirim-performans CI düzeltmeleri eksik: {problems}")
-    print("Bildirim ayarları, davranış ve responsive testleri güncel sisteme uyumlandı.")
+    print("Bildirim ayarları, gecikme günleri, davranış ve responsive testleri güncel sisteme uyumlandı.")
 
 
 if __name__ == "__main__":
