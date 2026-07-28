@@ -27,6 +27,52 @@ def _remove_legacy_month_method(root: Path) -> None:
     print("Ana sayfadaki eski aylık hesap metodu kontrollü biçimde kaldırıldı.")
 
 
+def _ensure_notification_scheduler(root: Path) -> None:
+    path = root / "lib/services/notification_service.dart"
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(
+        "onError: (Object _, StackTrace __) {},",
+        "onError: (Object _, StackTrace _) {},",
+    )
+    definition = "  Future<void> _scheduleReminder("
+    if definition not in text:
+        marker = "  bool _isManagedPending(PendingNotificationRequest request) {"
+        index = text.find(marker)
+        if index == -1:
+            raise SystemExit("Bildirim zamanlayıcı ekleme sınırı bulunamadı.")
+        method = """  Future<void> _scheduleReminder(
+    ScheduledReminder reminder,
+    MizanState state,
+  ) async {
+    final local = reminder.scheduledAt;
+    final scheduled = tz.TZDateTime(
+      tz.local,
+      local.year,
+      local.month,
+      local.day,
+      local.hour,
+      local.minute,
+    );
+    await _plugin.zonedSchedule(
+      id: reminder.id,
+      title: reminder.title,
+      body: reminder.message,
+      scheduledDate: scheduled,
+      notificationDetails: _detailsFor(reminder.kind, state),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: '${reminder.kind.name}:${reminder.sourceId}',
+      matchDateTimeComponents: reminder.repeatsDaily
+          ? DateTimeComponents.time
+          : null,
+    );
+  }
+
+"""
+        text = text[:index] + method + text[index:]
+        print("Dakik Android bildirim zamanlayıcısı geri yerleştirildi.")
+    path.write_text(text, encoding="utf-8")
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(
@@ -83,11 +129,14 @@ def main() -> None:
     else:
         _remove_legacy_month_method(root)
 
+    _ensure_notification_scheduler(root)
+
     required = {
         "lib/services/notification_service.dart": [
             "pendingNotificationRequests()",
             "desiredIds.difference(actualIds)",
             "_rescheduleTail",
+            "Future<void> _scheduleReminder(",
         ],
         "lib/services/monthly_payment_status_service.dart": [
             "class MonthlyPaymentStatusService",
@@ -115,6 +164,7 @@ def main() -> None:
         "lib/services/notification_service.dart": [
             "_scheduledSignatures",
             "_scheduleCachePrimed",
+            "StackTrace __",
         ],
         "lib/screens/dashboard_screen.dart": [
             "_monthOpenRecords(",
