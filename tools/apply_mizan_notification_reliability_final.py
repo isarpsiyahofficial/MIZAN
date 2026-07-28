@@ -31,6 +31,10 @@ def main() -> None:
     if actual != PATCH_SHA256:
         raise SystemExit(f"Bildirim güvenilirlik patch SHA uyuşmuyor: {actual}")
 
+    (root / "android/app/src/main/java/com/dexterous/flutterlocalnotifications").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     with tempfile.NamedTemporaryFile(suffix=".patch") as handle:
         handle.write(patch)
         handle.flush()
