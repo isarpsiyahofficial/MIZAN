@@ -1,4 +1,4 @@
-name: MIZAN notification performance final release
+name: MIZAN notification background reliability final release
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: .baseline-artifact
 
-      - name: Restore verified source and apply final patch
+      - name: Restore verified source and apply final patches
         shell: bash
         run: |
           set -euo pipefail
@@ -68,6 +68,7 @@ jobs:
           PY
           python3 tools/apply_mizan_notification_performance_final.py "$SOURCE_ROOT"
           python3 tools/fix_notification_performance_ci.py "$SOURCE_ROOT"
+          python3 tools/apply_mizan_notification_reliability_final.py "$SOURCE_ROOT"
           test -f "$SOURCE_ROOT/pubspec.yaml"
 
       - name: Set up Java 17
@@ -89,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci-logs
-          exec > >(tee ci-logs/notification-performance-final.log) 2>&1
+          exec > >(tee ci-logs/notification-background-reliability-final.log) 2>&1
           flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
           python3 tools/configure_android.py
           flutter pub get
@@ -105,6 +106,7 @@ jobs:
               test/automatic_notification_sync_test.dart \
               test/reminder_engine_test.dart \
               test/notification_performance_report_final_test.dart \
+              test/notification_background_reliability_test.dart \
               --reporter expanded
             flutter test \
               test/report_service_test.dart \
@@ -121,12 +123,16 @@ jobs:
           flutter build apk --release
           test -s build/app/outputs/flutter-apk/app-release.apk
           unzip -t build/app/outputs/flutter-apk/app-release.apk
+          test -f android/app/src/main/java/com/dexterous/flutterlocalnotifications/ExactAlarmPermissionReceiver.java
+          grep -q 'SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED' android/app/src/main/AndroidManifest.xml
+          grep -q 'ScheduledNotificationBootReceiver' android/app/src/main/AndroidManifest.xml
+          ! grep -q 'USE_FULL_SCREEN_INTENT' android/app/src/main/AndroidManifest.xml
 
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-notification-performance-final-diagnostics
+          name: mizan-notification-background-reliability-final-diagnostics
           path: ${{ env.SOURCE_ROOT }}/ci-logs/
           if-no-files-found: warn
           retention-days: 14
@@ -135,7 +141,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-notification-performance-final-screenshots
+          name: mizan-notification-background-reliability-final-screenshots
           path: ${{ env.SOURCE_ROOT }}/test/goldens/*.png
           if-no-files-found: warn
           retention-days: 30
@@ -143,7 +149,7 @@ jobs:
       - name: Upload verified release APK
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-notification-performance-final-release
+          name: lefferion-prime-mizan-notification-background-reliability-final-release
           path: ${{ env.SOURCE_ROOT }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
@@ -157,9 +163,9 @@ jobs:
           import shutil, zipfile
 
           root = Path('workspace/LEFFERION-PRIME-MIZAN-PAYMENT-EXPENSE-FINAL')
-          dist = Path('dist-notification-performance-final')
-          stage = dist / 'LEFFERION-PRIME-MIZAN-NOTIFICATION-PERFORMANCE-FINAL'
-          archive = dist / 'LEFFERION-PRIME-MIZAN-NOTIFICATION-PERFORMANCE-FINAL-SOURCE.zip'
+          dist = Path('dist-notification-background-reliability-final')
+          stage = dist / 'LEFFERION-PRIME-MIZAN-NOTIFICATION-BACKGROUND-RELIABILITY-FINAL'
+          archive = dist / 'LEFFERION-PRIME-MIZAN-NOTIFICATION-BACKGROUND-RELIABILITY-FINAL-SOURCE.zip'
           shutil.rmtree(dist, ignore_errors=True)
           stage.mkdir(parents=True)
           excluded_roots = {'.git', '.dart_tool', 'build', 'ci-logs', '.gradle'}
@@ -188,7 +194,7 @@ jobs:
       - name: Upload verified source ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: lefferion-prime-mizan-notification-performance-final-source
-          path: dist-notification-performance-final/LEFFERION-PRIME-MIZAN-NOTIFICATION-PERFORMANCE-FINAL-SOURCE.zip
+          name: lefferion-prime-mizan-notification-background-reliability-final-source
+          path: dist-notification-background-reliability-final/LEFFERION-PRIME-MIZAN-NOTIFICATION-BACKGROUND-RELIABILITY-FINAL-SOURCE.zip
           if-no-files-found: error
           retention-days: 30
