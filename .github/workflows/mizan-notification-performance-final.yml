@@ -92,11 +92,11 @@ jobs:
           echo "=== ANDROID PROJECT GENERATION ==="
           flutter create "$SOURCE_ROOT" --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
           echo "=== BASE ANDROID CONFIGURATION ==="
-          python3 "$SOURCE_ROOT/tools/configure_android.py"
+          (cd "$SOURCE_ROOT" && python3 tools/configure_android.py)
           echo "=== RELIABILITY PATCH APPLICATION ==="
           python3 tools/apply_mizan_notification_reliability_final.py "$SOURCE_ROOT"
           echo "=== FINAL ANDROID CONFIGURATION ==="
-          python3 "$SOURCE_ROOT/tools/configure_android.py"
+          (cd "$SOURCE_ROOT" && python3 tools/configure_android.py)
 
       - name: Analyze, verify three times, test and build release
         working-directory: ${{ env.SOURCE_ROOT }}
