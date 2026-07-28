@@ -68,7 +68,6 @@ jobs:
           PY
           python3 tools/apply_mizan_notification_performance_final.py "$SOURCE_ROOT"
           python3 tools/fix_notification_performance_ci.py "$SOURCE_ROOT"
-          python3 tools/apply_mizan_notification_reliability_final.py "$SOURCE_ROOT"
           test -f "$SOURCE_ROOT/pubspec.yaml"
 
       - name: Set up Java 17
@@ -84,6 +83,15 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Generate Android and apply notification reliability patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create "$SOURCE_ROOT" --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          python3 "$SOURCE_ROOT/tools/configure_android.py"
+          python3 tools/apply_mizan_notification_reliability_final.py "$SOURCE_ROOT"
+          python3 "$SOURCE_ROOT/tools/configure_android.py"
+
       - name: Analyze, verify three times, test and build release
         working-directory: ${{ env.SOURCE_ROOT }}
         shell: bash
@@ -91,8 +99,6 @@ jobs:
           set -euo pipefail
           mkdir -p ci-logs
           exec > >(tee ci-logs/notification-background-reliability-final.log) 2>&1
-          flutter create . --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
-          python3 tools/configure_android.py
           flutter pub get
           dart format lib test
           dart run flutter_launcher_icons
