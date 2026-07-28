@@ -12,6 +12,21 @@ PATCH_SHA256 = "f04320adc91f3184eaefe1e79428a46c2e28f31f4aa4560e662ec697a963e87c
 EXPECTED_CHUNKS = 2
 
 
+def _remove_legacy_month_method(root: Path) -> None:
+    path = root / "lib/screens/dashboard_screen.dart"
+    text = path.read_text(encoding="utf-8")
+    start_marker = "  List<RecordReference> _monthOpenRecords("
+    end_marker = "  Future<void> _showMonthlyPaymentOverview("
+    start = text.find(start_marker)
+    if start == -1:
+        return
+    end = text.find(end_marker, start)
+    if end == -1:
+        raise SystemExit("Ana sayfadaki eski aylık hesap metodunun bitiş sınırı bulunamadı.")
+    path.write_text(text[:start] + text[end:], encoding="utf-8")
+    print("Ana sayfadaki eski aylık hesap metodu kontrollü biçimde kaldırıldı.")
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(
@@ -38,11 +53,35 @@ def main() -> None:
     with tempfile.NamedTemporaryFile(suffix=".patch") as handle:
         handle.write(patch)
         handle.flush()
-        subprocess.run(
+        result = subprocess.run(
             ["patch", "--batch", "--forward", "-p1", "-i", handle.name],
             cwd=root,
-            check=True,
+            check=False,
+            capture_output=True,
+            text=True,
         )
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+
+    rejects = sorted(root.rglob("*.rej"))
+    expected_reject = root / "lib/screens/dashboard_screen.dart.rej"
+    if result.returncode != 0:
+        if rejects != [expected_reject]:
+            raise SystemExit(
+                f"Beklenmeyen bildirim güvenilirlik yama reddi: "
+                f"returncode={result.returncode}, rejects={rejects}"
+            )
+        _remove_legacy_month_method(root)
+        expected_reject.unlink()
+        original = root / "lib/screens/dashboard_screen.dart.orig"
+        if original.exists():
+            original.unlink()
+    elif rejects:
+        raise SystemExit(f"Başarılı görünen yamada reddedilen dosya kaldı: {rejects}")
+    else:
+        _remove_legacy_month_method(root)
 
     required = {
         "lib/services/notification_service.dart": [
@@ -76,6 +115,9 @@ def main() -> None:
         "lib/services/notification_service.dart": [
             "_scheduledSignatures",
             "_scheduleCachePrimed",
+        ],
+        "lib/screens/dashboard_screen.dart": [
+            "_monthOpenRecords(",
         ],
         "android/app/src/main/AndroidManifest.xml": [
             "android.permission.USE_FULL_SCREEN_INTENT",
