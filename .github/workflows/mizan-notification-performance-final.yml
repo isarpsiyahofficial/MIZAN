@@ -87,9 +87,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$SOURCE_ROOT/ci-logs"
+          exec > >(tee "$SOURCE_ROOT/ci-logs/reliability-apply.log") 2>&1
+          echo "=== ANDROID PROJECT GENERATION ==="
           flutter create "$SOURCE_ROOT" --platforms=android --org com.lefferionprime --project-name lefferion_prime_mizan
+          echo "=== BASE ANDROID CONFIGURATION ==="
           python3 "$SOURCE_ROOT/tools/configure_android.py"
+          echo "=== RELIABILITY PATCH APPLICATION ==="
           python3 tools/apply_mizan_notification_reliability_final.py "$SOURCE_ROOT"
+          echo "=== FINAL ANDROID CONFIGURATION ==="
           python3 "$SOURCE_ROOT/tools/configure_android.py"
 
       - name: Analyze, verify three times, test and build release
