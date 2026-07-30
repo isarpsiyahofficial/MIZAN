@@ -1,0 +1,60 @@
+name: Export MIZAN complete backup for MIZANGLOBAL
+
+on:
+  push:
+    branches:
+      - agent/mizan-global-full-backup-export
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create complete mirrored Git backup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git clone --mirror "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" mizan-mirror.git
+          git -C mizan-mirror.git update-ref -d refs/heads/agent/mizan-global-full-backup-export || true
+          git -C mizan-mirror.git bundle create ../MIZAN-COMPLETE-REPOSITORY.bundle --all
+          git -C mizan-mirror.git show-ref | sort > MIZAN-REFS.txt
+          git -C mizan-mirror.git fsck --full
+
+      - name: Create exact main source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git clone --branch main --single-branch "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" mizan-main
+          rm -rf mizan-main/.git
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf MIZAN-MAIN-SOURCE.tar.gz mizan-main
+          find mizan-main -type f -print0 | sort -z | xargs -0 sha256sum > MIZAN-MAIN-FILES-SHA256.txt
+          find mizan-main -type f | sort > MIZAN-MAIN-FILES.txt
+          printf 'file_count=' > MIZAN-BACKUP-SUMMARY.txt
+          find mizan-main -type f | wc -l >> MIZAN-BACKUP-SUMMARY.txt
+          printf 'directory_count=' >> MIZAN-BACKUP-SUMMARY.txt
+          find mizan-main -type d | wc -l >> MIZAN-BACKUP-SUMMARY.txt
+          printf 'source_head=' >> MIZAN-BACKUP-SUMMARY.txt
+          git --git-dir=mizan-mirror.git rev-parse refs/heads/main >> MIZAN-BACKUP-SUMMARY.txt
+          sha256sum MIZAN-COMPLETE-REPOSITORY.bundle MIZAN-MAIN-SOURCE.tar.gz MIZAN-REFS.txt MIZAN-MAIN-FILES-SHA256.txt MIZAN-MAIN-FILES.txt MIZAN-BACKUP-SUMMARY.txt > MIZAN-BACKUP-SHA256.txt
+
+      - name: Upload complete backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-complete-repository-backup
+          path: |
+            MIZAN-COMPLETE-REPOSITORY.bundle
+            MIZAN-MAIN-SOURCE.tar.gz
+            MIZAN-REFS.txt
+            MIZAN-MAIN-FILES-SHA256.txt
+            MIZAN-MAIN-FILES.txt
+            MIZAN-BACKUP-SUMMARY.txt
+            MIZAN-BACKUP-SHA256.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
