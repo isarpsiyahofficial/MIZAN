@@ -1,0 +1,6 @@
+file_count=43
+directory_count=10
+branch_count=33
+tag_count=0
+commit_count=479
+source_head=10d3379f890ca7d981ef44f984bd32436b791ea3
