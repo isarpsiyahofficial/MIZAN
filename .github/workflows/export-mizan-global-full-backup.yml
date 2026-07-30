@@ -9,25 +9,46 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - name: Create complete mirrored Git backup
+      - name: Create migration-safe complete Git backup
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           git clone --mirror "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" mizan-mirror.git
-          git -C mizan-mirror.git update-ref -d refs/heads/agent/mizan-global-full-backup-export || true
-          git -C mizan-mirror.git bundle create ../MIZAN-COMPLETE-REPOSITORY.bundle --all
-          git -C mizan-mirror.git show-ref | sort > MIZAN-REFS.txt
-          git -C mizan-mirror.git fsck --full
 
-      - name: Create exact main source archive
+          # Exclude only branches created for this temporary transfer operation.
+          git -C mizan-mirror.git update-ref -d refs/heads/agent/mizan-global-full-backup-export || true
+          git -C mizan-mirror.git update-ref -d refs/heads/backup/mizan-global-export-package || true
+
+          # GitHub pull refs cannot be pushed into another repository. They are
+          # review cache refs, not project branches. Preserve every real head/tag.
+          while IFS= read -r ref; do
+            [ -z "$ref" ] || git -C mizan-mirror.git update-ref -d "$ref"
+          done < <(git -C mizan-mirror.git for-each-ref --format='%(refname)' refs/pull)
+
+          while IFS= read -r ref; do
+            case "$ref" in
+              refs/heads/*|refs/tags/*) ;;
+              *) git -C mizan-mirror.git update-ref -d "$ref" ;;
+            esac
+          done < <(git -C mizan-mirror.git for-each-ref --format='%(refname)')
+
+          git -C mizan-mirror.git fsck --full
+          git -C mizan-mirror.git bundle create ../MIZAN-MIGRATION-COMPLETE.bundle --all
+          git -C mizan-mirror.git show-ref | sort > MIZAN-MIGRATION-REFS.txt
+
+          git clone --mirror MIZAN-MIGRATION-COMPLETE.bundle verification.git
+          git -C verification.git fsck --full
+          diff -u MIZAN-MIGRATION-REFS.txt <(git -C verification.git show-ref | sort)
+
+      - name: Create exact main source archive and manifests
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -38,22 +59,34 @@ jobs:
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf MIZAN-MAIN-SOURCE.tar.gz mizan-main
           find mizan-main -type f -print0 | sort -z | xargs -0 sha256sum > MIZAN-MAIN-FILES-SHA256.txt
           find mizan-main -type f | sort > MIZAN-MAIN-FILES.txt
-          printf 'file_count=' > MIZAN-BACKUP-SUMMARY.txt
-          find mizan-main -type f | wc -l >> MIZAN-BACKUP-SUMMARY.txt
-          printf 'directory_count=' >> MIZAN-BACKUP-SUMMARY.txt
-          find mizan-main -type d | wc -l >> MIZAN-BACKUP-SUMMARY.txt
-          printf 'source_head=' >> MIZAN-BACKUP-SUMMARY.txt
-          git --git-dir=mizan-mirror.git rev-parse refs/heads/main >> MIZAN-BACKUP-SUMMARY.txt
-          sha256sum MIZAN-COMPLETE-REPOSITORY.bundle MIZAN-MAIN-SOURCE.tar.gz MIZAN-REFS.txt MIZAN-MAIN-FILES-SHA256.txt MIZAN-MAIN-FILES.txt MIZAN-BACKUP-SUMMARY.txt > MIZAN-BACKUP-SHA256.txt
 
-      - name: Upload complete backup
+          {
+            printf 'file_count='; find mizan-main -type f | wc -l
+            printf 'directory_count='; find mizan-main -type d | wc -l
+            printf 'branch_count='; git -C mizan-mirror.git for-each-ref refs/heads --format='%(refname)' | wc -l
+            printf 'tag_count='; git -C mizan-mirror.git for-each-ref refs/tags --format='%(refname)' | wc -l
+            printf 'commit_count='; git -C mizan-mirror.git rev-list --all --count
+            printf 'source_head='; git --git-dir=mizan-mirror.git rev-parse refs/heads/main
+          } > MIZAN-BACKUP-SUMMARY.txt
+
+          sha256sum \
+            MIZAN-MIGRATION-COMPLETE.bundle \
+            MIZAN-MAIN-SOURCE.tar.gz \
+            MIZAN-MIGRATION-REFS.txt \
+            MIZAN-MAIN-FILES-SHA256.txt \
+            MIZAN-MAIN-FILES.txt \
+            MIZAN-BACKUP-SUMMARY.txt \
+            > MIZAN-BACKUP-SHA256.txt
+          sha256sum -c MIZAN-BACKUP-SHA256.txt
+
+      - name: Upload complete backup artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mizan-complete-repository-backup
+          name: mizan-migration-complete-backup
           path: |
-            MIZAN-COMPLETE-REPOSITORY.bundle
+            MIZAN-MIGRATION-COMPLETE.bundle
             MIZAN-MAIN-SOURCE.tar.gz
-            MIZAN-REFS.txt
+            MIZAN-MIGRATION-REFS.txt
             MIZAN-MAIN-FILES-SHA256.txt
             MIZAN-MAIN-FILES.txt
             MIZAN-BACKUP-SUMMARY.txt
@@ -61,3 +94,33 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
+
+      - name: Publish temporary transfer branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir transfer-package
+          cp MIZAN-MIGRATION-COMPLETE.bundle transfer-package/
+          cp MIZAN-MAIN-SOURCE.tar.gz transfer-package/
+          cp MIZAN-MIGRATION-REFS.txt transfer-package/
+          cp MIZAN-MAIN-FILES-SHA256.txt transfer-package/
+          cp MIZAN-MAIN-FILES.txt transfer-package/
+          cp MIZAN-BACKUP-SUMMARY.txt transfer-package/
+          cp MIZAN-BACKUP-SHA256.txt transfer-package/
+          cat > transfer-package/README.md <<'EOF'
+          # Temporary MIZAN transfer package
+
+          This branch contains the verified complete Git bundle and exact main-source archive used to restore MIZANGLOBAL. It is not the development branch.
+          EOF
+
+          cd transfer-package
+          git init
+          git config user.name "MIZAN Backup Automation"
+          git config user.email "actions@github.com"
+          git checkout --orphan backup-package
+          git add -A
+          git commit -m "backup: complete MIZAN transfer package"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
+          git push --force origin HEAD:refs/heads/backup/mizan-global-export-package
