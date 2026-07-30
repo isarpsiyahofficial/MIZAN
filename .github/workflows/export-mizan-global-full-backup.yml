@@ -25,6 +25,7 @@ jobs:
 
           # Exclude only branches created for this temporary transfer operation.
           git -C mizan-mirror.git update-ref -d refs/heads/agent/mizan-global-full-backup-export || true
+          git -C mizan-mirror.git update-ref -d refs/heads/backup/mizan-global-export-package || true
           git -C mizan-mirror.git update-ref -d refs/heads/mizan-global-export-package || true
 
           # GitHub pull refs cannot be pushed into another repository. They are
