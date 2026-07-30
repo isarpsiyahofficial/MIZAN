@@ -25,7 +25,7 @@ jobs:
 
           # Exclude only branches created for this temporary transfer operation.
           git -C mizan-mirror.git update-ref -d refs/heads/agent/mizan-global-full-backup-export || true
-          git -C mizan-mirror.git update-ref -d refs/heads/backup/mizan-global-export-package || true
+          git -C mizan-mirror.git update-ref -d refs/heads/mizan-global-export-package || true
 
           # GitHub pull refs cannot be pushed into another repository. They are
           # review cache refs, not project branches. Preserve every real head/tag.
@@ -119,8 +119,8 @@ jobs:
           git init
           git config user.name "MIZAN Backup Automation"
           git config user.email "actions@github.com"
-          git checkout --orphan backup-package
+          git checkout --orphan transfer-package
           git add -A
           git commit -m "backup: complete MIZAN transfer package"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
-          git push --force origin HEAD:refs/heads/backup/mizan-global-export-package
+          git push --force origin HEAD:refs/heads/mizan-global-export-package
